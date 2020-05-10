@@ -1,0 +1,12 @@
+# TODO:
+# https://docs.conan.io/en/latest/howtos/cmake_launch.html
+
+[requires]
+eigen/3.3.7@conan/stable
+fmt/6.1.2
+
+
+[generators]
+cmake
+
+

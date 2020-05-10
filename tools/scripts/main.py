@@ -65,7 +65,7 @@ class Sample:
 
         return self._row
 
-    def __init__(self, source_: serial.serialwin32):
+    def __init__(self, source_ ):
         self._source = source_
 
         self._row = {'time': '',
@@ -139,7 +139,7 @@ class Sample:
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
 
-    serial_port = "COM3"
+    serial_port = "/dev/ttyUSB0"
 
     try:
         # open serial port
