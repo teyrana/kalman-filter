@@ -55,20 +55,17 @@ int Interface::configure() {
     cfsetospeed (&tty, baud_rate);
     cfsetispeed (&tty, baud_rate);
 
+    // struct fields are populated in order-of-definition in `struct termios`:
+    { // input specific flags (bitmask)
+        tty.c_iflag = 0;
+        tty.c_iflag &= ~(IXON | IXOFF | IXANY); // shut off xon/xoff flow control
 
-    // these would be a good idea, _*in theory*_, but it works fine without all this mucking about.
-
-    // // struct fields are populated in order-of-definition in `struct termios`:
-    // { // input specific flags (bitmask)
-    //     tty.c_iflag = 0;
-    //     tty.c_iflag &= ~(IXON | IXOFF | IXANY); // shut off xon/xoff flow control
-
-    //     // disable IGNBRK for mismatched speed tests; otherwise receive break as \000 chars
-    //     tty.c_iflag |= IGNBRK;     // ignare break processing
-    //     // tty.c_iflag |= IGNPAR;      // Ignore bytes with parity errors
-    //     tty.c_iflag |= ICRNL;       // map CR to NL (otherwise a CR input on the other computer
-    //                                 // will not terminate input)
-    //     tty.c_iflag |= IGNCR;      // ignore carriage return on input
+        // disable IGNBRK for mismatched speed tests; otherwise receive break as \000 chars
+        tty.c_iflag |= IGNBRK;     // ignore break processing
+        tty.c_iflag |= IGNPAR;      // Ignore bytes with parity errors
+        tty.c_iflag |= ICRNL;       // map CR to NL (otherwise a CR input on the other computer
+                                    // will not terminate input)
+        tty.c_iflag |= IGNCR;      // ignore carriage return on input
 
     // }{ // output specific flags (bitmask)
     //     tty.c_oflag = 0;                // no remapping, no delays
@@ -76,21 +73,21 @@ int Interface::configure() {
     // }{ // control flags (bitmask)
     //     tty.c_cflag = 0;
     //     tty.c_cflag &= ~CSIZE;      // CHARACTER_SIZE_MASK
-    //     tty.c_cflag |= CS8;         // 8-bit characters
-    //     tty.c_cflag &= ~PARENB;     // no parity bit
-    //     tty.c_cflag &= ~CSTOPB;     // only need 1 stop bit
-    //     tty.c_cflag &= ~CRTSCTS;    // no hardware flowcontrol
-    //     tty.c_cflag |= CLOCAL;      // ignore modem controls,
-    //     tty.c_cflag |= CREAD;       // enable reading
+        tty.c_cflag |= CS8;         // 8-bit characters
+        tty.c_cflag &= ~PARENB;     // no parity bit
+        tty.c_cflag &= ~CSTOPB;     // only need 1 stop bit
+        tty.c_cflag &= ~CRTSCTS;    // no hardware flowcontrol
+        tty.c_cflag |= CLOCAL;      // ignore modem controls,
+        tty.c_cflag |= CREAD;       // enable reading
 
-    // }{ // local flags (bitmask)
-    //     tty.c_lflag = 0; // non-canonical mode; no echo
-    //     tty.c_lflag = ICANON;       // Enable canonical input
+    }{ // local flags (bitmask)
+        tty.c_lflag = 0; // non-canonical mode; no echo
 
-    // }{ // special characters
-    //     tty.c_cc[VMIN]  = 0;            // read doesn't block
-    //     tty.c_cc[VTIME] = 1;            // 0.1 seconds read timeout
-    // }
+    }{ // special characters
+        tty.c_cc[VMIN]  = 0;            // read doesn't block
+        tty.c_cc[VTIME] = 1;            // 0.1 seconds read timeout
+    
+    }
 
     // tcflush(dev, TCIFLUSH);
 
