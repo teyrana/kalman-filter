@@ -20,10 +20,17 @@ int main()
         return EXIT_FAILURE;
     }
 
-    cerr << "==== Starting Streams: ==== " << endl;
-    if( EXIT_SUCCESS == imu.stream()){
-        return EXIT_FAILURE;
-    }
+    imu.get_quaternion();
+
+    imu.get_rotation_matrix();
+
+    imu.get_euler_angles();
+
+    
+    // cerr << "==== Starting Streams: ==== " << endl;
+    // if( EXIT_SUCCESS == imu.stream()){
+    //     return EXIT_FAILURE;
+    // }
 
     // imu_source_start();
 
