@@ -35,9 +35,15 @@ public:
 
     constexpr const uint8_t* data() const { return buffer.data(); }
 
+    // convenience method specifically to set data bytes:
+    uint8_t& data(size_t index ){
+        return buffer[ 2 + index];
+    }
+
     uint8_t& operator[](size_t index ){
         return buffer[index];
     }
+
 
     void pack() { 
         buffer[buffer.size() - 1] = checksum();
@@ -47,7 +53,9 @@ public:
 
     void store_int32_data( uint32_t source, ssize_t dest_index ){
         auto source_bytes = reinterpret_cast<uint8_t*>(&source);
-        auto dest_bytes = buffer.data() + dest_index;
+
+        // 2 == length of command header
+        auto dest_bytes = buffer.data() + 2 + dest_index;
 
         // little-endian -> big-endian
         dest_bytes[0] = source_bytes[3];

@@ -22,13 +22,20 @@
 
 using IMU::Connection;
 
-IMU::Connection::Connection()
-    : Connection("/dev/ttyUSB0", 115200)
-{ 
+Connection::Connection()
+    : baud_rate_(9600)
+    , fd_(-1)
+    , path_("/dev/ttyS0")
+    , stream_interval( 250 * 1000)    // 250 ms
+    , stream_duration( 25000 * 1000)  // 2.5s
+    , stream_delay( 1000 )            // minimum delay
+    , stream_receive_buffer({0})
+    , state_(ERROR)
+{
 
 }
 
-IMU::Connection::Connection( const std::string _path, uint32_t _baud)
+Connection::Connection( const std::string _path, uint32_t _baud)
     : baud_rate_(_baud)
     , fd_(-1)      // error value
     , path_(_path)
@@ -36,24 +43,24 @@ IMU::Connection::Connection( const std::string _path, uint32_t _baud)
     , stream_duration( 25000 * 1000)  // 2.5s
     , stream_delay( 1000 )            // minimum delay
     , stream_receive_buffer({0})
-    , state(ERROR)
+    , state_(ERROR)
 {
-    std::cout << "## Setting up IMU Connection..." << std::endl;
-    std::cout << "    >> Opening Serial port: " << path_ << std::endl;
-
-    //open serial port
-    fd_ = open( path_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK );
-    if (fd_ < 0) {
-        std::cerr << "!! Error could not open serial port: " << path_ << std::endl;
-        state = ERROR;
-    }else{
-        state = STARTUP;
+    if( 0 != open(path_, baud_rate_) ){
+        state_ = ERROR;
+        return;
     }
+    
+    if( 0 != configure() ){
+        state_ = ERROR;
+        return;
+    }
+
+    state_ = IDLE;
 }
 
 Connection::~Connection(){
 
-    if( STREAM == state ){
+    if( STREAM == state_ ){
         const auto bytes_written = write( stop_stream_command );
 
         // ensure the command is sent, before we close the socket:
@@ -65,15 +72,80 @@ Connection::~Connection(){
     }
 }
 
-int Connection::configure() {
-    // https://en.wikibooks.org/wiki/Serial_Programming/termios
-    
-    if(state != STARTUP ){
+int Connection::configure(){
+    if( 0 >= fd_){
         return -1;
     }
 
-    std::cout << "    >> Configuring serial port..." << std::endl;
-    std::cout << "        baud:  " << baud_rate_ << std::endl;
+    fprintf(stderr, ">> Configuring serial device...\n");
+
+    
+    {
+        auto set_axis_directions_command = Command<1>( 116, 0, nullptr );
+#ifdef REMAP_AXES
+        // Remap axes: from: "Natural Axes" (hardware default)
+        //               to: Conventional Axes (UUV Literature)
+        // enum for: right-up-forward => forward-right-down
+        set_axis_directions_command.data(0) = 0x03 | 0x02; 
+#else
+        // explicitly set to hardware defaults:
+        set_axis_directions_command.data(0) = 0;
+#endif 
+        set_axis_directions_command.pack();
+        auto bytes_written = write( set_axis_directions_command );
+        usleep( bytes_written * 10 );
+    }{
+        // set euler angle order:
+
+    }
+
+    state_ = IDLE;
+    return 0;
+}
+
+int Connection::monitor(){
+
+    while( STREAM == state_ ){
+        ssize_t bytes_read = receive( stream_receive_buffer.data(), stream_receive_buffer.size() );
+
+        if (0 == bytes_read) {
+            fprintf(stderr, "    !! Error while streaming!! \n");
+            fprintf(stderr, "    !! [%d]: %s !!\n", errno, strerror(errno) );
+            state_ = ERROR;
+        }
+
+        if(expected_receive_bytes != bytes_read){
+            continue;
+        } else { 
+            // TODO: implement happy path here
+
+        }
+    }
+
+    return -1;  // error return path
+}
+
+int Connection::open( const std::string& _path, uint32_t _baudrate){ 
+    // https://en.wikibooks.org/wiki/Serial_Programming/termios
+
+    if( _path.empty() || 0 == _baudrate){
+        return -1;
+    }
+    path_ = _path;
+    baud_rate_ = _baudrate;
+
+    std::cout << "    >> Opening Serial port:\n"
+              << "        Path: " << path_ << std::endl;
+    //open serial port
+    fd_ = ::open( path_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK );
+    if (fd_ < 0) {
+        std::cerr << "    !!!! Error: could not open serial port !!!!" << std::endl;
+        state_ = ERROR;
+        return -1;
+    }
+
+    std::cout << "    >> Configuring serial port:\n"
+              << "        Baud: " << baud_rate_ << std::endl;
 
     struct termios tty;
     if (tcgetattr (fd_, &tty) != 0) {
@@ -134,19 +206,8 @@ int Connection::configure() {
         return -1;
     }
 
+    state_ = STARTUP;
     return 0;
-}
-
-ssize_t Connection::write( const uint8_t* command, const ssize_t command_length ){
-
-    auto bytes_written = ::write( fd_, command, command_length);
-    
-    if( command_length != bytes_written){
-        std::cerr << "Error::Serial::write::(" << errno << "): " << strerror(errno) << std::endl;
-        return bytes_written;
-    }
-
-    return bytes_written;
 }
 
 ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_length ){
@@ -373,9 +434,9 @@ int Connection::stream() {
 
     // (2) Set streaming timing:
     IMU::Command<12> timing_command(0x52, 0, nullptr);
-    timing_command.store_int32_data( stream_interval, 2 );    
-    timing_command.store_int32_data( stream_duration, 6 );
-    timing_command.store_int32_data( stream_delay, 10 );
+    timing_command.store_int32_data( stream_interval, 0 );
+    timing_command.store_int32_data( stream_duration, 4 );
+    timing_command.store_int32_data( stream_delay, 8 );
     timing_command.pack();
 
     bytes_written = write( timing_command );
@@ -390,24 +451,14 @@ int Connection::stream() {
     return 0;
 }
 
-int Connection::monitor(){
+ssize_t Connection::write( const uint8_t* command, const ssize_t command_length ){
 
-    while( STREAM == state ){
-        ssize_t bytes_read = receive( stream_receive_buffer.data(), stream_receive_buffer.size() );
-
-        if (0 == bytes_read) {
-            fprintf(stderr, "    !! Error while streaming!! \n");
-            fprintf(stderr, "    !! [%d]: %s !!\n", errno, strerror(errno) );
-            state = ERROR;
-        }
-
-        if(expected_receive_bytes != bytes_read){
-            continue;
-        } else { 
-            // TODO: implement happy path here
-
-        }
+    auto bytes_written = ::write( fd_, command, command_length);
+    
+    if( command_length != bytes_written){
+        std::cerr << "Error::Serial::write::(" << errno << "): " << strerror(errno) << std::endl;
+        return bytes_written;
     }
 
-    return -1;  // error return path
+    return bytes_written;
 }

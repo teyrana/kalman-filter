@@ -12,7 +12,7 @@
 #include <Eigen/Geometry>
 
 #include "command.hpp"
-
+ 
 namespace IMU {
 
 class Connection {
@@ -22,7 +22,9 @@ public:
     static constexpr uint32_t STREAMING_FLAG = 0x04;
     enum ConnectionState_t {
         ERROR = 0,
+        // serial port is ready to use
         STARTUP = CONNECTED_FLAG,
+        // the peer device is ready to use (i.e. configured)
         IDLE = CONNECTED_FLAG | CONFIGURED_FLAG, 
         STREAM = CONNECTED_FLAG | CONFIGURED_FLAG | STREAMING_FLAG
     };
@@ -34,9 +36,14 @@ public:
 
     int configure();
 
+    int monitor();
+
+    int open( const std::string& _path, uint32_t _baudrate);
+
+    int inline state(){ return state_; }
+
     int stream();
 
-    int monitor();
     
 #ifdef DEBUG
 public:
@@ -61,7 +68,7 @@ private:
     static constexpr ssize_t expected_receive_bytes = 12;
     std::array<uint8_t, expected_receive_bytes> stream_receive_buffer;
     
-    ConnectionState_t state; 
+    ConnectionState_t state_;
 
 #ifdef DEBUG
     // 0 (0x00), Read tared orientation as quaternion
@@ -74,9 +81,11 @@ private:
     static constexpr Command<0> readSingleRotationMatrixCommand = Command<0>(2);
 #endif  // #ifdef DEBUG
 
+
     // 156 (0x9c) Get Euler angle decomposition order
     static constexpr Command<0> getEulerAngleDecompositionCommand = Command<0>( 156 );
 
+    // ?? (0x55)  start streaming
     static constexpr Command<0> start_stream_command = Command<0>( 0x55 );
 
     // 86 (0x56) Stop Streaming

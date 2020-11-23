@@ -14,18 +14,22 @@ using std::endl;
 
 int main()
 {
+    std::cout << "## Setting up IMU Connection..." << std::endl;
     IMU::Connection imu;
 
-    if(IMU::Connection::IDLE != imu.state()){
+    imu.open("/dev/ttyUSB0", 115200);
+
+    imu.configure();
+    
+    if( IMU::Connection::IDLE != imu.state()){
         return EXIT_FAILURE;
     }
 
-    cerr << "==== Starting Streams: ==== " << endl;
-    if( EXIT_SUCCESS == imu.stream()){
-        // imu.monitor();
-    } else {
-        return EXIT_FAILURE;
-    }
+    imu.get_quaternion();
+
+    imu.get_rotation_matrix();
+
+    imu.get_euler_angles();
 
     return EXIT_SUCCESS;
 }
