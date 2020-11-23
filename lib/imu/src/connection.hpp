@@ -15,14 +15,28 @@
 
 namespace IMU {
 
-class Interface {
+class Connection {
 public:
-    Interface();
-    ~Interface();
+    static constexpr uint32_t CONNECTED_FLAG = 0x01;
+    static constexpr uint32_t CONFIGURED_FLAG = 0x02;
+    static constexpr uint32_t STREAMING_FLAG = 0x04;
+    enum ConnectionState_t {
+        ERROR = 0,
+        STARTUP = CONNECTED_FLAG,
+        IDLE = CONNECTED_FLAG | CONFIGURED_FLAG, 
+        STREAM = CONNECTED_FLAG | CONFIGURED_FLAG | STREAMING_FLAG
+    };
+
+public:
+    Connection();
+    Connection(std::string _path, uint32_t _baudrate);
+    ~Connection();
 
     int configure();
 
     int stream();
+
+    int monitor();
     
 #ifdef DEBUG
 public:
@@ -33,9 +47,21 @@ public:
 #endif  // #ifdef DEBUG
 
 private:
-    int baud_rate;
-    int dev;
-    std::string path;
+    uint32_t baud_rate_;
+    int fd_;
+    std::string path_;
+
+    /// \brief output streaming data once every 'streaming_interval' microseconds
+    uint32_t stream_interval;
+    /// \brief output streaming for this many microseconds
+    uint32_t stream_duration;
+    /// \brief start streaming after this many microseconds
+    uint32_t stream_delay;
+
+    static constexpr ssize_t expected_receive_bytes = 12;
+    std::array<uint8_t, expected_receive_bytes> stream_receive_buffer;
+    
+    ConnectionState_t state; 
 
 #ifdef DEBUG
     // 0 (0x00), Read tared orientation as quaternion
@@ -51,18 +77,24 @@ private:
     // 156 (0x9c) Get Euler angle decomposition order
     static constexpr Command<0> getEulerAngleDecompositionCommand = Command<0>( 156 );
 
+    static constexpr Command<0> start_stream_command = Command<0>( 0x55 );
+
+    // 86 (0x56) Stop Streaming
+    static constexpr Command<0> stop_stream_command = Command<0>( 0x56 );
+
 private:
 
     /// \brief serial-to-host conversion, floah a binary, big-endian representation of a float into a C-typed float variable
-    float load_float( uint8_t* source, float& dest );
+    static float load_float( uint8_t* source, float& dest );
 
     /// \brief serial-to-host conversion, floah a binary, big-endian representation of a float into a C-typed float variable
-    double byte4_to_double( uint8_t* source ){ float ret; return static_cast<double>(load_float(source, ret)); } 
-    
-    template<typename command_t>
-    ssize_t command( command_t cmd){ return command( cmd.data(), cmd.size()); }
+    static double byte4_to_double( uint8_t* source ){ float ret; return static_cast<double>(load_float(source, ret)); } 
 
-    ssize_t command( const uint8_t * command, ssize_t command_length );
+    static uint32_t write_int32( uint32_t source, uint8_t * dest);
+
+    template<typename command_t>
+    ssize_t write( command_t cmd){ return write( cmd.data(), cmd.size()); }
+    ssize_t write( const uint8_t * command, ssize_t command_length );
     ssize_t receive( uint8_t* source, ssize_t len );
 
 }; // class Interface

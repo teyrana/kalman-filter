@@ -8,31 +8,31 @@ using std::cout;
 using std::endl;
 
 // project includes
-#include "interface.hpp"
+#include "connection.hpp"
 
 // #include "integrator.hpp"
 
 int main()
 {
-    IMU::Interface imu;
+    IMU::Connection imu;
 
-    if(EXIT_FAILURE == imu.configure()){
+    if(EXIT_SUCCESS != imu.configure()){
         return EXIT_FAILURE;
     }
 
-    imu.get_quaternion();
+    // imu.get_quaternion();
 
-    imu.get_rotation_matrix();
+    // imu.get_rotation_matrix();
 
-    imu.get_euler_angles();
-
+    // imu.get_euler_angles();
     
     // cerr << "==== Starting Streams: ==== " << endl;
     // if( EXIT_SUCCESS == imu.stream()){
+    //     // imu.monitor();
+    // } else {
     //     return EXIT_FAILURE;
     // }
 
-    // imu_source_start();
 
     return EXIT_SUCCESS;
 }

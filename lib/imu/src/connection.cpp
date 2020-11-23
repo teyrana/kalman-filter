@@ -18,47 +18,69 @@
 #include <Eigen/Dense>
 
 // 1st-Party. Program Includes
-#include "interface.hpp"
+#include "connection.hpp"
 
-using IMU::Interface;
+using IMU::Connection;
 
-IMU::Interface::Interface()
-    : baud_rate(B115200)
-    , path("/dev/ttyUSB0")
+IMU::Connection::Connection()
+    : Connection("/dev/ttyUSB0", 115200)
 { 
-    std::cout << "## Setting up IMU..." << std::endl;
+
 }
 
-Interface::~Interface(){
-    close(dev);
-}
-
-int Interface::configure() {
-    std::cerr << "....## Opening IMU serial port:" << std::endl;
-    std::cout << "    path:  " << path << std::endl;
-    std::cout << "    baud:  " << (baud_rate==  B9600?  "9600":
-                                  (baud_rate==B115200?"115200":
-                                    "??"))
-                               << std::endl;
+IMU::Connection::Connection( const std::string _path, uint32_t _baud)
+    : baud_rate_(_baud)
+    , fd_(-1)      // error value
+    , path_(_path)
+    , stream_interval( 250 * 1000)    // 250 ms
+    , stream_duration( 25000 * 1000)  // 2.5s
+    , stream_delay( 1000 )            // minimum delay
+    , stream_receive_buffer({0})
+    , state(ERROR)
+{
+    std::cout << "## Setting up IMU Connection..." << std::endl;
+    std::cout << "    >> Opening Serial port: " << path_ << std::endl;
 
     //open serial port
-    dev = open( path.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK );
-    if (dev < 0) {
-        std::cout << "!! Error could not open serial port: " << path << std::endl;
+    fd_ = open( path_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK );
+    if (fd_ < 0) {
+        std::cerr << "!! Error could not open serial port: " << path_ << std::endl;
+        state = ERROR;
+    }else{
+        state = STARTUP;
+    }
+}
+
+Connection::~Connection(){
+
+    if( STREAM == state ){
+        const auto bytes_written = write( stop_stream_command );
+
+        // ensure the command is sent, before we close the socket:
+        usleep( bytes_written * 10 );  // nominal write speed: <10 usec/byte
+    }
+
+    if( 0 <= fd_){
+        close(fd_);
+    }
+}
+
+int Connection::configure() {
+    // https://en.wikibooks.org/wiki/Serial_Programming/termios
+    
+    if(state != STARTUP ){
         return -1;
     }
 
+    std::cout << "    >> Configuring serial port..." << std::endl;
+    std::cout << "        baud:  " << baud_rate_ << std::endl;
+
     struct termios tty;
-    if (tcgetattr (dev, &tty) != 0) {
+    if (tcgetattr (fd_, &tty) != 0) {
         std::cerr << "error " << errno << '(' << strerror(errno) << ") from tcgetattr" << std::endl;
         return -1;
     }
-
-    // https://en.wikibooks.org/wiki/Serial_Programming/termios
     
-    cfsetospeed (&tty, baud_rate);
-    cfsetispeed (&tty, baud_rate);
-
     // struct fields are populated in order-of-definition in `struct termios`:
     { // input specific flags (bitmask)
         tty.c_iflag = 0;
@@ -71,12 +93,27 @@ int Interface::configure() {
                                     // will not terminate input)
         tty.c_iflag |= IGNCR;      // ignore carriage return on input
 
-    // }{ // output specific flags (bitmask)
+    }{ // output specific flags (bitmask)
     //     tty.c_oflag = 0;                // no remapping, no delays
 
-    // }{ // control flags (bitmask)
-    //     tty.c_cflag = 0;
-    //     tty.c_cflag &= ~CSIZE;      // CHARACTER_SIZE_MASK
+    }{ // control flags (bitmask)
+        tty.c_cflag = 0;
+
+        {
+            const speed_t configure_baud_rate = (
+                            (baud_rate_==  9600) ?   B9600:
+                            (baud_rate_== 19200) ?  B19200:
+                            (baud_rate_== 38400) ?  B38400:
+                            (baud_rate_== 57600) ?  B57600:
+                            (baud_rate_==115200) ? B115200:
+                                                        B0 );
+
+            // these modify the 'c_cflag' field:
+            cfsetospeed (&tty, configure_baud_rate );
+            cfsetispeed (&tty, configure_baud_rate );
+        }
+
+        // tty.c_cflag &= ~CSIZE;      // CHARACTER_SIZE_MASK
         tty.c_cflag |= CS8;         // 8-bit characters
         tty.c_cflag &= ~PARENB;     // no parity bit
         tty.c_cflag &= ~CSTOPB;     // only need 1 stop bit
@@ -90,21 +127,19 @@ int Interface::configure() {
     }{ // special characters
         tty.c_cc[VMIN]  = 0;            // read doesn't block
         tty.c_cc[VTIME] = 1;            // 0.1 seconds read timeout
-    
     }
 
-    // tcflush(dev, TCIFLUSH);
-
-    if (tcsetattr (dev, TCSANOW, &tty) != 0) {
+    if (tcsetattr (fd_, TCSANOW, &tty) != 0) {
         std::cerr << "::Error::Serial::Configure:" << errno << " from tcsetattr" << std::endl;
         return -1;
     }
+
     return 0;
 }
 
-ssize_t Interface::command( const uint8_t* command, const ssize_t command_length ){
+ssize_t Connection::write( const uint8_t* command, const ssize_t command_length ){
 
-    auto bytes_written = write( dev, command, command_length);
+    auto bytes_written = ::write( fd_, command, command_length);
     
     if( command_length != bytes_written){
         std::cerr << "Error::Serial::write::(" << errno << "): " << strerror(errno) << std::endl;
@@ -114,7 +149,7 @@ ssize_t Interface::command( const uint8_t* command, const ssize_t command_length
     return bytes_written;
 }
 
-ssize_t Interface::receive( uint8_t* receive_buffer, ssize_t receive_length ){
+ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_length ){
 
     if( nullptr == receive_buffer ){
         std::cerr << "Error::Serial::receive::(" << EFAULT << "): for destination data pointer: " << strerror(EFAULT) << std::endl;
@@ -131,12 +166,11 @@ ssize_t Interface::receive( uint8_t* receive_buffer, ssize_t receive_length ){
     ssize_t bytes_read = 0;
 
     while( receive_at < receive_until){
-        bytes_read = read( dev, receive_at, receive_for);
+        bytes_read = read( fd_, receive_at, receive_for);
         // std::cerr << "    >> 3: 'read' return: " << bytes_read << " bytes." << std::endl;
 
         if( -1 == bytes_read ){
-            // empirical.  Not actually necessary, but lightens the load, instead of spinning on the i/o call ...
-            usleep( 2500 );
+            usleep( 2500 );  // just a heuristic; arrived at empirically
             continue;
         
         }else if (bytes_read == EAGAIN || bytes_read == EWOULDBLOCK) {
@@ -163,11 +197,12 @@ ssize_t Interface::receive( uint8_t* receive_buffer, ssize_t receive_length ){
         }
     }
 
-    // Unknown state! Control should not reach here...
-    assert(false);
+    // Unknown state! Control should not reach here... 
+    // but may, if too many bytes are requested.
+    return -1;
 }
 
-float Interface::load_float( uint8_t* source, float& dest ){
+float Connection::load_float( uint8_t* source, float& dest ){
 
     uint8_t* raw_float_bytes = reinterpret_cast<uint8_t*>(&dest);
 
@@ -180,10 +215,10 @@ float Interface::load_float( uint8_t* source, float& dest ){
 }
 
 
-ssize_t Interface::get_euler_angles(){
+ssize_t Connection::get_euler_angles(){
 
     std::cerr << "## 1: Requesting Euler Angles: (Filtered, Tared) " << std::endl;
-    if( 0 > command(IMU::Interface::readSingleEulerAnglesCommand) ) {
+    if( 0 > write(IMU::Connection::readSingleEulerAnglesCommand) ) {
         std::cerr << "    <<!!: Command Error... abort!" << std::endl;
         abort();
     }
@@ -221,11 +256,11 @@ ssize_t Interface::get_euler_angles(){
     return bytes_received;
 }
 
-ssize_t Interface::get_quaternion(){
+ssize_t Connection::get_quaternion(){
 
     // DEBUG
     std::cerr << "## 1: Requesting Quaternion: (Filtered, Tared)" << std::endl;
-    if( 0 > command(IMU::Interface::readSingleQuaternionCommand) ) {
+    if( 0 > write(IMU::Connection::readSingleQuaternionCommand) ) {
         std::cerr << "    <<!!: Command Error... abort!" << std::endl;
         abort();
     }
@@ -275,11 +310,11 @@ ssize_t Interface::get_quaternion(){
 }
 
 
-ssize_t Interface::get_rotation_matrix(){
+ssize_t Connection::get_rotation_matrix(){
 
     // DEBUG 
     std::cerr << "## 1: Requesting Rotation Matrix: (Filtered, Tared) " << std::endl;
-    if( 0 > command(IMU::Interface::readSingleRotationMatrixCommand) ) {
+    if( 0 > write(IMU::Connection::readSingleRotationMatrixCommand) ) {
         std::cerr << "    <<!!: Command Error... abort!" << std::endl;
         abort();
     }
@@ -322,22 +357,57 @@ ssize_t Interface::get_rotation_matrix(){
 
     return bytes_received;
 }
-int Interface::stream() {
 
-    // 1) Set up the streaming to call the commands you want data from:
-    std::cerr << "## (1) Configure Streams: " << std::endl;
-    // 0(0x00), Read tared orientation as quaternion
+int Connection::stream() {
+    ssize_t bytes_written = 0;
 
-    std::cerr << ".... ## Starting IMU data stream:" << std::endl;
- 
-    // { // DEBUG
-    //     readSingleQuaternionCommand.fprinth(stderr);
-    //     return EXIT_FAILURE;
-    // } // DEBUG
+    // (1) Set up the streaming slots to stream the desire commands:
+    IMU::Command<8> slot_command(0x50, 0, nullptr);
+    slot_command[2] = 1;
+    memset( const_cast<uint8_t*>(slot_command.data() + 3), 0xFF, 7 );
+    slot_command.pack();
+    bytes_written = write( slot_command );
+    fprintf(stdout, ">>>> Wrote Streaming Slots.\n");
+    // slot_command.fprinth(stdout);
+    usleep( bytes_written * 5000 );
 
-    get_quaternion();
+    // (2) Set streaming timing:
+    IMU::Command<12> timing_command(0x52, 0, nullptr);
+    timing_command.store_int32_data( stream_interval, 2 );    
+    timing_command.store_int32_data( stream_duration, 6 );
+    timing_command.store_int32_data( stream_delay, 10 );
+    timing_command.pack();
 
-    //SENDING FINISHED
-    std::cout << "write() [serial_communcation] finished..." << std::endl;
-    return 1;
+    bytes_written = write( timing_command );
+    fprintf(stdout, ">>>> Wrote stream Timing.\n");
+    usleep( bytes_written * 5000 );
+
+    // // (3) Start streaming, using the current configuration:
+    bytes_written = write( start_stream_command );
+    fprintf(stdout, ">>>> Wrote Start-Streaming Command.\n");
+    usleep( bytes_written * 5000 );
+
+    return 0;
+}
+
+int Connection::monitor(){
+
+    while( STREAM == state ){
+        ssize_t bytes_read = receive( stream_receive_buffer.data(), stream_receive_buffer.size() );
+
+        if (0 == bytes_read) {
+            fprintf(stderr, "    !! Error while streaming!! \n");
+            fprintf(stderr, "    !! [%d]: %s !!\n", errno, strerror(errno) );
+            state = ERROR;
+        }
+
+        if(expected_receive_bytes != bytes_read){
+            continue;
+        } else { 
+            // TODO: implement happy path here
+
+        }
+    }
+
+    return -1;  // error return path
 }

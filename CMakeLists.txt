@@ -67,9 +67,9 @@ INCLUDE_DIRECTORIES(${CONAN_INCLUDE_DIRS})
 SET(IMU_INTERFACE_LIB_NAME imu-interface-module)
 SET(IMU_INTERFACE_LIB_HEADERS 
             lib/imu/src/command.hpp
-            lib/imu/src/interface.hpp )
+            lib/imu/src/connection.hpp )
 SET(IMU_INTERFACE_LIB_SOURCES
-            lib/imu/src/interface.cpp )
+            lib/imu/src/connection.cpp )
 
 add_library(${IMU_INTERFACE_LIB_NAME} STATIC ${IMU_INTERFACE_LIB_HEADERS} ${IMU_INTERFACE_LIB_SOURCES})
 
