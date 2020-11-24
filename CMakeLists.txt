@@ -64,67 +64,18 @@ INCLUDE_DIRECTORIES(${CONAN_INCLUDE_DIRS})
 # SET(LIBRARY_LINKAGE ${LIBRARY_LINKAGE} ${CHART_BASE_LIB_NAME})
 
 # ============= IMU Interface Library =================
-SET(IMU_INTERFACE_LIB_NAME imu-interface-module)
-SET(IMU_INTERFACE_LIB_HEADERS 
-            lib/imu/src/command.hpp
-            lib/imu/src/connection.hpp )
-SET(IMU_INTERFACE_LIB_SOURCES
-            lib/imu/src/connection.cpp )
-
-# # in progress
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DREMAP_AXES")
-
-add_library(${IMU_INTERFACE_LIB_NAME} STATIC ${IMU_INTERFACE_LIB_HEADERS} ${IMU_INTERFACE_LIB_SOURCES})
-
-TARGET_LINK_LIBRARIES(${IMU_INTERFACE_LIB_NAME} PRIVATE ${LIBRARY_LINKAGE})
-
-list(APPEND LIBRARY_LINKAGE ${IMU_INTERFACE_LIB_NAME})
-INCLUDE_DIRECTORIES(lib/imu/src/)
+add_subdirectory( lib/imu )
 
 # ============= Kalman Filter Library =================
-SET(FILTER_LIB_NAME filter-module)
-SET(FILTER_LIB_HEADERS lib/filter/src/integrator.hpp)
-SET(FILTER_LIB_SOURCES lib/filter/src/integrator.cpp)
-add_library(${FILTER_LIB_NAME} STATIC ${FILTER_LIB_HEADERS} ${FILTER_LIB_SOURCES})
-
-# TARGET_LINK_LIBRARIES(${IMU_INTEGRATOR_LIB_NAME} PRIVATE ${LIBRARY_LINKAGE})
-
-list(APPEND LIBRARY_LINKAGE ${IMU_INTEGRATOR_LIB_NAME})
-INCLUDE_DIRECTORIES(lib/filter/src/)
+# add_subdirectory( lib/filter ${CMAKE_SOURCE_DIR}/lib/ )
 
 # ============= Text UI Module =================
 # this is as simple program to pull single commands from the imu:
-SET(CLI_EXE_NAME imuping)
-
-# SET(EXE_HEADERS tools/cli/src/???
-#     )
-
-SET(EXE_SOURCES tools/imuping/src/main.cpp )
-
-ADD_EXECUTABLE(${CLI_EXE_NAME} ${EXE_HEADERS} ${EXE_SOURCES})
-
-TARGET_INCLUDE_DIRECTORIES( ${CLI_EXE_NAME} PUBLIC lib/filter/src/ )
-TARGET_LINK_LIBRARIES(${CLI_EXE_NAME} PRIVATE 
-                            imu-interface-module )
-
+add_subdirectory( tools/imuping )
 
 # ============= Text UI Module =================
 # this is as simple text program to run the above libraries
-SET(CLI_EXE_NAME tracker)
-
-# SET(EXE_HEADERS tools/cli/src/???
-#     )
-
-SET(EXE_SOURCES tools/logger/src/main.cpp )
-
-
-ADD_EXECUTABLE(${CLI_EXE_NAME} ${EXE_HEADERS} ${EXE_SOURCES})
-
-TARGET_INCLUDE_DIRECTORIES( ${CLI_EXE_NAME} PUBLIC lib/filter/src/ )
-TARGET_LINK_LIBRARIES(${CLI_EXE_NAME} PRIVATE 
-                            # filter-module
-                            imu-interface-module )
-
+add_subdirectory( tools/logger )
 
 # ============= Build Project Tests  =================
 # https://cmake.org/cmake/help/v3.0/module/FindGTest.html 
