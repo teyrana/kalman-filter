@@ -25,7 +25,7 @@ using IMU::Driver;
 Driver::Driver()
     : conn_("/dev/ttyS0", 9600)
     , log( *spdlog::get("console"))
-    , stream_interval( 250 * 1000)    // 250 ms
+    , stream_interval( 500 * 1000)    // 500 ms
     , stream_duration( 25000 * 1000)  // 2.5s
     , stream_delay( 1000 )            // minimum delay
     , stream_receive_message()
@@ -35,7 +35,7 @@ Driver::Driver()
 Driver::Driver( const std::string _path, uint32_t _baud)
     : conn_(_path, _baud)
     , log( *spdlog::get("console"))
-    , stream_interval( 250 * 1000)    // 250 ms
+    , stream_interval( 500 * 1000)    // 500 ms
     , stream_duration( 25000 * 1000)  // 2.5s
     , stream_delay( 1000 )            // minimum delay
     , stream_receive_message()
@@ -108,28 +108,6 @@ int Driver::configure(){
     return 0;
 }
 
-int Driver::monitor(){
-
-    while( STREAM == state_ ){
-        ssize_t bytes_read = receive( stream_receive_message );
-
-        if (0 == bytes_read) {
-            log.error("    !! Error while streaming!!");
-            log.error("    !! [{}]: {} !!", errno, strerror(errno) );
-            state_ = ERROR;
-        }
-
-        if( stream_receive_message.size() != static_cast<size_t>(bytes_read)){
-            continue;
-        } else { 
-            // TODO: implement happy path here
-
-        }
-    }
-
-    return -1;  // error return path
-}
-
 #ifdef DEBUG
 ssize_t Driver::get_euler_angles(){
 
@@ -148,14 +126,7 @@ ssize_t Driver::get_euler_angles(){
     }
 
     log.info("    >> Received Euler Angles ({} bytes)", bytes_received);
-    // for( size_t i = 0; i < receive_message.size(); ++i){
-    //     if( 0 == i%8 ){
-    //         fputc(' ', stderr);
-    //     }
-    //     log.info(stderr, "%02X ", receive_message[i]);
-    // }
-    // fputc('\n', stderr);
-     
+    
     Eigen::Vector3d euler_angles(0,0,0);
     euler_angles[0] = receive_message.read_float32( 4 );
     euler_angles[1] = receive_message.read_float32( 0 );
@@ -271,6 +242,41 @@ ssize_t Driver::get_rotation_matrix(){
 }
 #endif
 
+
+
+int Driver::monitor(){
+
+    while( STREAM == state_ ){
+        ssize_t bytes_read = receive( stream_receive_message );
+
+        if (0 == bytes_read) {
+            log.error("    !! Error while streaming!!");
+            log.error("    !! [{}]: {} !!", errno, strerror(errno) );
+            state_ = ERROR;
+        }
+
+        if( stream_receive_message.size() != static_cast<size_t>(bytes_read)){
+            continue;
+        } else { 
+            // fprintf( stderr, "... Monitoring Iteration:\n");
+
+
+            Eigen::Vector3d euler_angles(0,0,0);
+            euler_angles[0] = stream_receive_message.read_float32( 4 );
+            euler_angles[1] = stream_receive_message.read_float32( 0 );
+            euler_angles[2] = stream_receive_message.read_float32( 8 );
+
+            log.info( "...|{}| = [ {:+f}, {:+f}, {:+f} ]\n",  bytes_read, 
+                            euler_angles[0], euler_angles[1], euler_angles[2] );
+            
+            // TODO: implement happy path here
+
+        }
+    }
+
+    return -1;  // error return path
+}
+
 template<typename message_t>
 ssize_t Driver::receive( message_t& receive_message ){
     return conn_.receive( receive_message.data(), receive_message.size() );
@@ -279,34 +285,45 @@ ssize_t Driver::receive( message_t& receive_message ){
 int Driver::stream() {
     ssize_t bytes_written = 0;
 
-    // (1) Set up the streaming slots to stream the desire commands:
+    std::array<uint8_t, 8> stream_commands;
+    stream_commands.fill(0xFF); // the default (0xFF) is to stream nothing
+    stream_commands[0] = 1;     // Command 0x01: request the filtered, tared Euler Angles
+
     IMU::Command<8> slot_command(0x50);
-    slot_command[2] = 1;
-    memset( const_cast<uint8_t*>(slot_command.data() + 3), 0xFF, 7 );
+    slot_command.write_bytes( stream_commands.data(), 0, 8);
     slot_command.pack();
     bytes_written = write( slot_command );
 
     log.info(">>>> Wrote Streaming Slots.");
-    // slot_command.fprinth(stdout);
     usleep( bytes_written * 5000 );
 
-    // (2) Set streaming timing:
     IMU::Command<12> timing_command(0x52);
     timing_command.write_uint32( stream_interval, 0 );
     timing_command.write_uint32( stream_duration, 4 );
     timing_command.write_uint32( stream_delay,    8 );
     timing_command.pack();
-
     bytes_written = write( timing_command );
     log.info(">>>> Wrote stream Timing.");
     usleep( bytes_written * 5000 );
 
-    // // (3) Start streaming, using the current configuration:
     bytes_written = write( start_stream_command );
     log.info(">>>> Wrote Start-Streaming Command.");
     usleep( bytes_written * 5000 );
 
+    state_ = STREAM;
     return 0;
+}
+
+int Driver::stream( uint32_t desired_stream_interval ) {
+    if( 0 == desired_stream_interval ){
+        return -1;
+    }
+
+    stream_interval = desired_stream_interval * 1000;
+    stream_duration = 0xFFFFFFFF;
+    stream_delay = 1000; // minimum delay
+
+    return stream();
 }
 
 template<typename command_t>

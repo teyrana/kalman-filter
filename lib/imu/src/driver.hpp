@@ -45,6 +45,9 @@ public:
 
     int stream();
 
+    /// \param desired_stream_interval interval, in msec
+    int stream( uint32_t desired_stream_interval );
+    
     
 #ifdef DEBUG
 public:

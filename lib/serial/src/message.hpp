@@ -70,7 +70,11 @@ public:
         return total;
     }
 
-    void write_uint32( uint32_t source, ssize_t dest_index ){
+    void write_bytes(uint8_t* source, size_t dest_index, size_t len) {
+        memcpy( buffer.data() + dest_index, source, len);
+    }
+
+    void write_uint32( uint32_t source, size_t dest_index ){
         auto source_bytes = reinterpret_cast<uint8_t*>(&source);
 
         // 2 == length of command header

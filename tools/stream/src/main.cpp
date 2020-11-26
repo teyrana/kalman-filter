@@ -3,9 +3,6 @@
 // standard library includes
 #include <iostream>
 #include <iterator>
-using std::cerr;
-using std::cout;
-using std::endl;
 
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
@@ -34,6 +31,10 @@ int main()
 {
     setup_logging();
 
+<<<<<<< HEAD
+=======
+    SPDLOG_INFO("## Setting up IMU Driver...");
+>>>>>>> [feat] smoothed streaming code -- 'imustream' program now streams the euler angles
     IMU::Driver imu("/dev/ttyUSB0", 115200);
 
     if( IMU::Driver::IDLE != imu.state()){
@@ -42,11 +43,12 @@ int main()
     }
 
     SPDLOG_INFO( "==== Starting Streams: ==== ");
-    if( EXIT_SUCCESS == imu.stream()){
-        // imu.monitor();
+    if( EXIT_SUCCESS == imu.stream(500)){
+        SPDLOG_INFO("==== Monitoring: ====");
+        imu.monitor();
+        return EXIT_SUCCESS;
     } else {
+        SPDLOG_ERROR("!! Error setting up stream !!");
         return EXIT_FAILURE;
     }
-
-    return EXIT_SUCCESS;
 }

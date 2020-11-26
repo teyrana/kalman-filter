@@ -9,7 +9,7 @@
 
 namespace IMU {
 
-template<size_t data_length>
+template<size_t payload_length>
 class Command {
     static constexpr uint8_t header_length = 2;
     static constexpr uint8_t footer_length = 1;
@@ -23,7 +23,7 @@ class Command {
     static constexpr uint8_t data_index = header_length;
 
     // footer fields
-    static constexpr uint8_t footer_index = header_length + data_length;
+    static constexpr uint8_t footer_index = header_length + payload_length;
     static constexpr uint8_t checksum_index = footer_index;
 
 public:
@@ -33,7 +33,7 @@ public:
         // optimized for zero-data-length commands -- the most common usage
         :message(sync_byte_value, command_id)
     {
-        if( 0 == data_length){
+        if( 0 == payload_length){
             pack();
         } 
     }
@@ -41,7 +41,7 @@ public:
     Command(uint8_t command_id, uint8_t data_byte)
         : message(sync_byte_value, command_id)
     {
-        if( 1 == data_length){
+        if( 1 == payload_length){
             message[2] = data_byte;
             pack();
         }
@@ -69,7 +69,7 @@ public:
         }
 
         // print data:
-        if( 0 < data_length){
+        if( 0 < payload_length){
             total += fprintf(stdout, "  ");
             for( i = data_index; i < footer_index; ++i ){
                 total += fprintf( dest, "%02X", message[i] );
@@ -95,13 +95,17 @@ public:
 
     constexpr size_t size() const { return message.size(); }
 
-    void write_uint32(uint32_t source, ssize_t dest_index) {
-        return message.write_uint32( source, dest_index);
+    void write_bytes(uint8_t* source, size_t dest_index, size_t len) {
+        return message.write_bytes( source, data_index + dest_index, len);
+    }
+
+    void write_uint32(uint32_t source, size_t dest_index) {
+        return message.write_uint32( source, data_index + dest_index);
     }
 
 private:
     // byte array to holds actual command bytes
-    Serial::Message< header_length, data_length, footer_length> message;
+    Serial::Message< header_length, payload_length, footer_length> message;
 
 private:
     constexpr uint8_t checksum() const {
