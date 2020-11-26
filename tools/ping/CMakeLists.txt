@@ -19,5 +19,5 @@ ADD_EXECUTABLE( ${PING_EXE_NAME}
 TARGET_INCLUDE_DIRECTORIES( ${PING_EXE_NAME} PRIVATE
                         ${CMAKE_SOURCE_DIR}/lib/imu/src/ )
 TARGET_LINK_LIBRARIES( ${PING_EXE_NAME} PRIVATE 
-                        imu-interface-module )
+                        imu-driver-module )
 

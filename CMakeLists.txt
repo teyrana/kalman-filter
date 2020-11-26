@@ -69,13 +69,15 @@ add_subdirectory( lib/imu )
 # ============= Kalman Filter Library =================
 # add_subdirectory( lib/filter ${CMAKE_SOURCE_DIR}/lib/ )
 
-# ============= Text UI Module =================
+# ============= Text UI Tools =================
 # this is as simple program to pull single commands from the imu:
-add_subdirectory( tools/imuping )
+add_subdirectory( tools/ping )
 
-# ============= Text UI Module =================
-# this is as simple text program to run the above libraries
-add_subdirectory( tools/logger )
+# streams data from the IMU:
+add_subdirectory( tools/stream )
+
+# streams & filters data from the IMU:
+add_subdirectory( tools/tracker )
 
 # ============= Build Project Tests  =================
 # https://cmake.org/cmake/help/v3.0/module/FindGTest.html 
