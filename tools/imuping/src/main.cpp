@@ -8,20 +8,16 @@ using std::cout;
 using std::endl;
 
 // project includes
-#include "connection.hpp"
+#include "driver.hpp"
 
 // #include "integrator.hpp"
 
 int main()
 {
     std::cout << "## Setting up IMU Connection..." << std::endl;
-    IMU::Connection imu;
+    IMU::Driver imu("/dev/ttyUSB0", 115200);
 
-    imu.open("/dev/ttyUSB0", 115200);
-
-    imu.configure();
-    
-    if( IMU::Connection::IDLE != imu.state()){
+    if( IMU::Driver::IDLE != imu.state()){
         return EXIT_FAILURE;
     }
 

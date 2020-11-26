@@ -1,8 +1,9 @@
 // GPL v3 (c) 2020, Daniel Williams 
 
-
 #ifndef _IMU_COMMAND_HPP_
 #define _IMU_COMMAND_HPP_
+
+#include "../../serial/src/message.hpp"
 
 #include <array>
 
@@ -10,88 +11,125 @@ namespace IMU {
 
 template<size_t data_length>
 class Command {
+    static constexpr uint8_t header_length = 2;
+    static constexpr uint8_t footer_length = 1;
+
+    // header fields
+    static constexpr uint8_t sync_byte_value = 0xF7;
+    static constexpr uint8_t sync_byte_index = 0;
+    static constexpr uint8_t command_id_index = 1;
+
+    // data field
+    static constexpr uint8_t data_index = header_length;
+
+    // footer fields
+    static constexpr uint8_t footer_index = header_length + data_length;
+    static constexpr uint8_t checksum_index = footer_index;
+
 public:
     Command() = delete;
 
-
     constexpr Command(uint8_t command_id)
-        : buffer( { 0xF7, 
-                    command_id,  // command field
-                    command_id,  // checksum field
-                    } )
-    {}
+        // optimized for zero-data-length commands -- the most common usage
+        :message(sync_byte_value, command_id)
+    {
+        if( 0 == data_length){
+            pack();
+        } 
+    }
 
-    Command(uint8_t command_id, size_t length, uint8_t * data){
-        buffer[0] = 0xF7;
-        buffer[1] = command_id;
-        
-        if( 0 < length ){
-            memcpy( buffer.data() + 2, data, length);
-            buffer[ buffer.size() - 2 ] = checksum();
+    Command(uint8_t command_id, uint8_t data_byte)
+        : message(sync_byte_value, command_id)
+    {
+        if( 1 == data_length){
+            message[2] = data_byte;
+            pack();
         }
     }
     
     // ~Command();
 
-    constexpr const uint8_t* data() const { return buffer.data(); }
+    constexpr uint8_t* data() { return message.data(); }
+
+    constexpr const uint8_t* data() const { return message.data(); }
 
     // convenience method specifically to set data bytes:
     uint8_t& data(size_t index ){
-        return buffer[ 2 + index];
-    }
-
-    uint8_t& operator[](size_t index ){
-        return buffer[index];
-    }
-
-
-    void pack() { 
-        buffer[buffer.size() - 1] = checksum();
-    }
-
-    constexpr size_t size() const { return buffer.size(); }
-
-    void store_int32_data( uint32_t source, ssize_t dest_index ){
-        auto source_bytes = reinterpret_cast<uint8_t*>(&source);
-
-        // 2 == length of command header
-        auto dest_bytes = buffer.data() + 2 + dest_index;
-
-        // little-endian -> big-endian
-        dest_bytes[0] = source_bytes[3];
-        dest_bytes[1] = source_bytes[2];
-        dest_bytes[2] = source_bytes[1];
-        dest_bytes[3] = source_bytes[0];
+        return message[ 2 + index];
     }
 
     int fprinth(FILE* dest) const {
         int total = 0;
-        uint8_t const * cur = buffer.data();
-        fprintf(stdout, "    %02X %02X    ", cur[0], cur[1] );
-        uint8_t const * const checksum_location = buffer.data() + buffer.size() - 1;
-        for( cur = buffer.data() + 2; cur < checksum_location; ++cur ){
-            fprintf( dest, "%02X ", *cur );
+        size_t i;
+
+        // print header:
+        total += fprintf(stdout, "    ");
+        for( i = 0; i < header_length; ++i ){
+            total += fprintf( dest, "%02X", message[i] );
         }
-        fprintf(stdout, "    %02X\n", *checksum_location );
-    
+
+        // print data:
+        if( 0 < data_length){
+            total += fprintf(stdout, "  ");
+            for( i = data_index; i < footer_index; ++i ){
+                total += fprintf( dest, "%02X", message[i] );
+            }
+        }
+
+        // print footer
+        total += fprintf(stdout, "    ");
+        for( i = footer_index; i < message.size(); ++i ){
+            total += fprintf( dest, "%02X", message[i] );
+        }
+
         return total;
     }
 
-private:
-    // byte array: holds actual command
-    // data length = length of command data, _not total length_! 
-    // total length == fence-post-byte + command_id + [data bytes] + checksum
-    /*const*/ std::array<uint8_t, data_length + 3 > buffer;
+    uint8_t& operator[](size_t index ){
+        return message[index];
+    }
 
-    uint8_t checksum() const {
+    constexpr void pack(){
+        message[checksum_index] = checksum();
+    }
+
+    constexpr size_t size() const { return message.size(); }
+
+    void write_uint32(uint32_t source, ssize_t dest_index) {
+        return message.write_uint32( source, dest_index);
+    }
+
+private:
+    // byte array to holds actual command bytes
+    Serial::Message< header_length, data_length, footer_length> message;
+
+private:
+    constexpr uint8_t checksum() const {
         int sum = 0; 
-        for(size_t i = 1; i < buffer.size()-1; ++i ){ 
-            sum += buffer[i];
+        for(size_t i = 1; i < message.size()-1; ++i ){ 
+            sum += message[i];
         }
         return sum;
     }
 
 }; // class IMU::Command
+
+#ifdef DEBUG
+// 0 (0x00), Read tared orientation as quaternion
+constexpr IMU::Command<0> get_quaternion_command = Command<0>(0);
+
+// 1 (0x01), Read tared orientation as euler angles
+constexpr IMU::Command<0> get_euler_angles_command = Command<0>(1);
+
+// 2 (0x02), Get tared orientation as rotation matrix
+constexpr IMU::Command<0> get_rotation_matrix_command = Command<0>(2);
+#endif  // #ifdef DEBUG
+
+// 85 (0x55)  start streaming
+constexpr IMU::Command<0> start_stream_command = Command<0>( 85 );
+
+// 86 (0x56) Stop Streaming
+constexpr IMU::Command<0> stop_stream_command = Command<0>( 86 );
 
 } // namespace IMU
 

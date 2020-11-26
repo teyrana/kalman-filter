@@ -8,15 +8,15 @@ using std::cout;
 using std::endl;
 
 // project includes
-#include "connection.hpp"
+#include "driver.hpp"
 
 // #include "integrator.hpp"
 
 int main()
 {
-    IMU::Connection imu;
+    IMU::Driver imu;
 
-    if(IMU::Connection::IDLE != imu.state()){
+    if(IMU::Driver::IDLE != imu.state()){
         return EXIT_FAILURE;
     }
 
