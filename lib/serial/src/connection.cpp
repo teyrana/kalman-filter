@@ -161,7 +161,8 @@ ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_count ){
             continue;
         
         }else if (bytes_read == EAGAIN || bytes_read == EWOULDBLOCK) {
-            std::cerr << "Warning:  socket should be non-blocking... EAGAIN / EWOULDBLOCK return from 'read' call..." << std::endl;
+            usleep( 2500 );  // just a heuristic; arrived at empirically
+            // std::cerr << "Warning:  socket should be non-blocking... EAGAIN / EWOULDBLOCK return from 'read' call..." << std::endl;
             continue;
 
         }else if( 0 < bytes_read ) {

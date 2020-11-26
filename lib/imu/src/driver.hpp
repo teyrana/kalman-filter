@@ -69,8 +69,6 @@ private:  // properties
     /// \brief start streaming after this many microseconds
     uint32_t stream_delay;
 
-    Serial::Message<0,12,0> stream_receive_message;
-
     DriverState_t state_;
 
 private:  // functions

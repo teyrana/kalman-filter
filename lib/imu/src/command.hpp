@@ -129,6 +129,9 @@ constexpr IMU::Command<0> get_euler_angles_command = Command<0>(1);
 constexpr IMU::Command<0> get_rotation_matrix_command = Command<0>(2);
 #endif  // #ifdef DEBUG
 
+// 96 (0x60)  Set Tare with current orientation
+constexpr IMU::Command<0> set_tare_command = Command<0>( 96 );
+
 // 85 (0x55)  start streaming
 constexpr IMU::Command<0> start_stream_command = Command<0>( 85 );
 

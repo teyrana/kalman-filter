@@ -28,7 +28,6 @@ Driver::Driver()
     , stream_interval( 500 * 1000)    // 500 ms
     , stream_duration( 25000 * 1000)  // 2.5s
     , stream_delay( 1000 )            // minimum delay
-    , stream_receive_message()
     , state_(ERROR)
 {}
 
@@ -38,7 +37,6 @@ Driver::Driver( const std::string _path, uint32_t _baud)
     , stream_interval( 500 * 1000)    // 500 ms
     , stream_duration( 25000 * 1000)  // 2.5s
     , stream_delay( 1000 )            // minimum delay
-    , stream_receive_message()
     , state_(ERROR)
 {
 
@@ -73,34 +71,38 @@ int Driver::configure(){
 
     log.info(">> Configuring serial device...");
 
-//     ssize_t bytes_written = 0;
-//     { // set running average order:
-//         // set: static running average mode
-//         auto set_average_mode_command = Command<1>( 124, 0 );
-//         bytes_written = write( set_average_mode_command );
-//         usleep( bytes_written * 10 );
+    ssize_t bytes_written = 0;
+    { // set running average order:
+        // set: static running average mode
+        auto set_average_mode_command = Command<1>( 124, 0 );
+        bytes_written = write( set_average_mode_command );
+        usleep( bytes_written * 10 );
 
-//     }{ // set axes order:
-//         auto set_axis_directions_command = Command<1>( 116 );
-// #ifdef REMAP_AXES
-//         // Remap axes: from: "Natural Axes" (hardware default)
-//         //               to: Conventional Axes (UUV Literature)
-//         // enum for: right-up-forward => forward-right-down
-//         set_axis_directions_command.data(0) = 0x03 | 0x02; 
-// #else
-//         // explicitly set to hardware defaults:
-//         set_axis_directions_command.data(0) = 0;
-// #endif 
-//         set_axis_directions_command.pack();
-//         auto bytes_written = write( set_axis_directions_command );
-//         usleep( bytes_written * 10 );
-//     }{
-//         // // 16 (0x10) Set Euler angle decomposition order
-//         // auto set_euler_order_command = Command<0>( 156 );
-//         // set_euler_order_command.data(0) = ?
-//         // auto bytes_written = write( set_axis_directions_command );
-//         // usleep( bytes_written * 10 );
-//     }
+    }{ // set axes order:
+        // explicitly set to hardware defaults:
+        auto set_axis_directions_command = Command<1>( 116, 0 );
+#ifdef REMAP_AXES
+        // Remap axes: from: "Natural Axes" (hardware default)
+        //               to: Conventional Axes (UUV Literature)
+        // enum for: right-up-forward => forward-right-down
+        set_axis_directions_command.data(0) = 0x03 | 0x02; 
+        set_axis_directions_command.pack();
+#endif 
+        auto bytes_written = write( set_axis_directions_command );
+        usleep( bytes_written * 10 );
+    }{ // set tare (reference direction)
+        // 16 (0x10) Set Euler angle decomposition order
+        auto bytes_written = write( set_tare_command );
+        usleep( bytes_written * 10 );
+
+    }{ // set euler angle decomposition order
+        // // 16 (0x10) Set Euler angle decomposition order
+        // auto set_euler_order_command = Command<0>( 156 );
+        // set_euler_order_command.data(0) = ?
+        // auto bytes_written = write( set_axis_directions_command );
+        // usleep( bytes_written * 10 );
+    
+    }
 
     log.info("<< Device Configured.\n");
 
@@ -245,6 +247,7 @@ ssize_t Driver::get_rotation_matrix(){
 
 
 int Driver::monitor(){
+    Serial::Message<0,12,0> stream_receive_message;
 
     while( STREAM == state_ ){
         ssize_t bytes_read = receive( stream_receive_message );
@@ -260,17 +263,17 @@ int Driver::monitor(){
         } else { 
             // fprintf( stderr, "... Monitoring Iteration:\n");
 
-
             Eigen::Vector3d euler_angles(0,0,0);
-            euler_angles[0] = stream_receive_message.read_float32( 4 );
-            euler_angles[1] = stream_receive_message.read_float32( 0 );
+            euler_angles[0] = stream_receive_message.read_float32( 0 );
+            euler_angles[1] = stream_receive_message.read_float32( 4 );
             euler_angles[2] = stream_receive_message.read_float32( 8 );
 
-            log.info( "...|{}| = [ {:+f}, {:+f}, {:+f} ]\n",  bytes_read, 
-                            euler_angles[0], euler_angles[1], euler_angles[2] );
-            
-            // TODO: implement happy path here
 
+            const double pitch = euler_angles[0];
+            const double yaw = euler_angles[1];
+            const double roll = euler_angles[2];
+            log.info( "....[ yaw: {:+f}, pitch: {:+f}, roll(+): {:+f} ]", 
+                      yaw, pitch, roll );
         }
     }
 
