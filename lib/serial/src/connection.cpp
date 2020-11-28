@@ -40,6 +40,14 @@ Connection::~Connection(){
     }
 }
 
+void Connection::drain(){
+    ::tcdrain(fd_);
+}
+
+void Connection::flush(int _queue_selector){
+    tcflush( fd_, _queue_selector);
+}
+
 bool Connection::is_open() const {
     return (0 <= fd_);
 }
@@ -52,7 +60,7 @@ int Connection::open( ){
     }
 
     log.info("    >> Opening Serial port:");
-    log.info("        Path: {}", path_ );
+    log.info("        Path: {}", path_);
     //open serial port
     fd_ = ::open( path_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK );
     if (fd_ < 0) {
@@ -61,7 +69,7 @@ int Connection::open( ){
     }
 
     log.info("    >> Configuring serial port:");
-    log.info("        Baud: {}", baud_rate_ );
+    log.info("        Baud: {}", baud_rate_);
 
     struct termios tty;
     if (tcgetattr (fd_, &tty) != 0) {
@@ -141,37 +149,43 @@ ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_count ){
     if( nullptr == receive_buffer ){
         log.error("Error::Serial::receive::({}) -- null receive_buffer", EFAULT); 
         return -1;
-    }else{
-        // Rule of thumb.  Not strictly necessary, but helps to lessen the I/O load
-        usleep( 10000 ); // wait 10ms, at first
     }
 
-    // std::cerr << "## 2: Waiting for " << receive_count << " bytes..." << std::endl;
+    // Rule of thumb.  Not strictly necessary, but helps to lessen the I/O load
+    usleep( poll_interval );
+
+    // log.debug("    ## 2: Waiting for {} bytes...", receive_count );
     uint8_t * receive_at = receive_buffer;
-    uint8_t * receive_until = receive_buffer + receive_count;
+    const uint8_t * const receive_until = receive_buffer + receive_count;
     ssize_t receive_for = receive_count;
     ssize_t bytes_read = 0;
 
+    // receive until we've filled up the buffer
     while( receive_at < receive_until){
+
         bytes_read = read( fd_, receive_at, receive_for);
-        // std::cerr << "    >> 3: 'read' return: " << bytes_read << " bytes." << std::endl;
+        // log.debug("    >> 3: 'read' return: {} bytes.  (with {} remaining)", bytes_read, receive_for);
 
         if( -1 == bytes_read ){
-            usleep( 2500 );  // just a heuristic; arrived at empirically
+            usleep(poll_interval);
             continue;
         
         }else if (bytes_read == EAGAIN || bytes_read == EWOULDBLOCK) {
-            usleep( 2500 );  // just a heuristic; arrived at empirically
-            // std::cerr << "Warning:  socket should be non-blocking... EAGAIN / EWOULDBLOCK return from 'read' call..." << std::endl;
+            // EAGAIN is returned by a read on a blocked socket that opened non-blocking.
+            // this means that the syscall _would_ block, but we've configured it not to  
+            usleep(poll_interval);
+            log.warn(" Socket should be non-blocking... EAGAIN / EWOULDBLOCK return from 'read' call...");
             continue;
 
         }else if( 0 < bytes_read ) {
-            // std::cerr << "    >> 4: Received " << bytes_read << " bytes." << std::endl;
+            // log.debug("    >> 4: Received {} bytes.", bytes_read);
             receive_at += bytes_read;
-            receive_for -= bytes_read;
-            
+            // receive_for -= bytes_read;
+            receive_for = (receive_until - receive_at);
+
             // make sure we don't overshoot our goal
-            if( 0 < receive_for ){
+            if( 0 > receive_for ){
+                log.error("<<!! Error:  negative 'receive_for' value!");
                 return -1;
             }
             
@@ -187,6 +201,7 @@ ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_count ){
         }
     }
 
+    log.error("??? how are we getting here? ", errno, strerror(errno) );
     // Unknown state! Control should not reach here... 
     // but may, if too many bytes are requested.
     return -1;

@@ -12,8 +12,9 @@
 #include <Eigen/Geometry>
 #include <spdlog/spdlog.h>
 
-#include "command.hpp"
 #include "../../serial/src/connection.hpp"
+#include "command.hpp"
+#include "response.hpp"
 
 namespace IMU {
 
@@ -39,23 +40,33 @@ public:
 
     int configure();
 
-    int monitor();
+    /// \brief the expected type of each streaming message;
+    typedef IMU::Response<12> stream_message_t;
+    
+    /// \brief watch the incoming message stream, and invoke the callback with each increment of data 
+    int monitor( void (*callback) (stream_message_t& buffer) );
 
     int inline state(){ return state_; }
 
-    int stream();
+    /// \param force send a stop command, regardless of driver state
+    void stop(bool force=false);
+
+    bool stream();
+
 
     /// \param desired_stream_interval interval, in msec
-    int stream( uint32_t desired_stream_interval );
-    
-    
-#ifdef DEBUG
-public:
-    // mostly for debugging / development
-    ssize_t get_euler_angles();
-    ssize_t get_quaternion();
-    ssize_t get_rotation_matrix();
-#endif  // #ifdef DEBUG
+    bool stream( uint32_t desired_stream_interval );
+
+public:    
+
+    template<typename response_t>
+    ssize_t receive( response_t& res);
+
+    template<typename command_t, typename response_t>
+    response_t& request( const command_t& cmd, response_t& res );
+
+    template<typename command_t>
+    bool write( const command_t& cmd);
 
 private:  // properties
     Serial::Connection conn_;
@@ -71,16 +82,10 @@ private:  // properties
 
     DriverState_t state_;
 
-private:  // functions
-
-    template<typename message_t>
-    ssize_t receive( message_t& receive_message);
-
-    template<typename command_t>
-    ssize_t write( const command_t & command);
-
 }; // class Interface
-
 } // namespace IMU
+
+// to include the template-function definitions
+#include "driver.inl"
 
 #endif // #ifndef _IMU_INTERFACE_HPP_
