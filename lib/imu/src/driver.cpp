@@ -13,10 +13,6 @@
 #include <termios.h>
 #include <unistd.h>
 
-// 3rd-Party Library Includes
-#include <Eigen/Geometry>
-#include <Eigen/Dense>
-
 // 1st-Party. Program Includes
 #include "driver.hpp"
 
@@ -35,11 +31,11 @@ Driver::Driver( const std::string _path, uint32_t _baud)
     : conn_(_path, _baud)
     , log( *spdlog::get("console"))
     , stream_interval( 500 * 1000)    // 500 ms
-    , stream_duration( 25000 * 1000)  // 2.5s
+    // , stream_duration( 0xffffffff) // production
+    , stream_duration( 30 * 1000000 ) // 30s -- development
     , stream_delay( 1000 )            // minimum delay
     , state_(ERROR)
 {
-
     if( !conn_.is_open() ){
         state_ = ERROR;
         return;
@@ -56,12 +52,7 @@ Driver::Driver( const std::string _path, uint32_t _baud)
 }
 
 Driver::~Driver(){
-    if( STREAM == state_ ){
-        const auto bytes_written = write( stop_stream_command );
-
-        // ensure the command is sent, before we close the socket:
-        usleep( bytes_written * 10 );  // nominal write speed: <10 usec/byte
-    }
+    stop();
 }
 
 int Driver::configure(){
@@ -71,32 +62,43 @@ int Driver::configure(){
 
     log.info(">> Configuring serial device...");
 
-    ssize_t bytes_written = 0;
-    { // set running average order:
-        // set: static running average mode
-        auto set_average_mode_command = Command<1>( 124, 0 );
-        bytes_written = write( set_average_mode_command );
-        usleep( bytes_written * 10 );
+    {   // 221 (0xDD) Set response Header
+        IMU::Command<4, 0> set_response_header_command( 221 );
+        set_response_header_command[5] = IMU::Response<0>::flags();
+        set_response_header_command.pack();
+        log.debug("    >> Setting response header fields => 0x{:02X}", IMU::Response<0>::flags() );
+        write( set_response_header_command );
+    
+        // IMU::Command<0, 4> get_response_header_command( 222 );
+        // write( get_response_header_command );
+        // log.debug("    >> Getting response header fields...");
+    }
 
-    }{ // set axes order:
-        // explicitly set to hardware defaults:
-        auto set_axis_directions_command = Command<1>( 116, 0 );
-#ifdef REMAP_AXES
-        // Remap axes: from: "Natural Axes" (hardware default)
-        //               to: Conventional Axes (UUV Literature)
-        // enum for: right-up-forward => forward-right-down
-        set_axis_directions_command.data(0) = 0x03 | 0x02; 
-        set_axis_directions_command.pack();
-#endif 
-        auto bytes_written = write( set_axis_directions_command );
-        usleep( bytes_written * 10 );
-    }{ // set tare (reference direction)
-        // 16 (0x10) Set Euler angle decomposition order
-        auto bytes_written = write( set_tare_command );
-        usleep( bytes_written * 10 );
+    {   // set: static running average mode (0x00)
+        // // IMU::Command<1,0> set_average_mode_command( 124, 0 );
+        // IMU::Command<1,0> set_average_mode_command( 124 );
+        // if( 1 < verbosity_){
+        //     fprintf(stderr, "    >> Changing Average Mode (=> %d) ...\n", set_average_mode_command[2]);
+        // }
+        // write( set_average_mode_command );
+        
+    }{ // 116 (x074) Set Axes Directions:
+        IMU::Command<1,0> set_axis_directions_command( 116, axis_mapping );
+        log.debug("    >> Mapping Axes => 0x{:02X} ...", set_axis_directions_command[2]);
+        write( set_axis_directions_command );
+        
+    }{  // 96 (0x60)  Set Tare with current orientation
+        constexpr IMU::Command<0,0> set_tare_command( 96 );
+        log.debug("    >> Setting Tare position to current orientation ...");
+        write( set_tare_command );
+        
+    }{  // 95 (0x5F) Set internal timestamp ( == 0 )(=> usec since startup)
+        IMU::Command<4,0> zero_timestamp_command(95);
+        zero_timestamp_command.pack();
+        log.debug("    >> Zero Timestamp position == 0 ...");
+        write( zero_timestamp_command );
 
-    }{ // set euler angle decomposition order
-        // // 16 (0x10) Set Euler angle decomposition order
+    }{  // // 16 (0x10) Set Euler angle decomposition order
         // auto set_euler_order_command = Command<0>( 156 );
         // set_euler_order_command.data(0) = ?
         // auto bytes_written = write( set_axis_directions_command );
@@ -104,220 +106,86 @@ int Driver::configure(){
     
     }
 
-    log.info("<< Device Configured.\n");
+    log.info("<< Device Configured.");
 
     state_ = IDLE;
     return 0;
 }
 
-#ifdef DEBUG
-ssize_t Driver::get_euler_angles(){
-
-    log.error( "## 1: Requesting Euler Angles: (Filtered, Tared) ");;
-    if( 0 > write( get_euler_angles_command ) ) {
-        log.error( "    <<!!: Command Error... abort!");;
-        abort();
-    }
-
-    // to: receive-buffer:
-    Serial::Message<0,12,0> receive_message;
-    ssize_t bytes_received = 0;
-    if( 0 > (bytes_received = receive( receive_message))){
-        log.error( "    <<!!: Receive Error... abort!");;
-        abort();
-    }
-
-    log.info("    >> Received Euler Angles ({} bytes)", bytes_received);
-    
-    Eigen::Vector3d euler_angles(0,0,0);
-    euler_angles[0] = receive_message.read_float32( 4 );
-    euler_angles[1] = receive_message.read_float32( 0 );
-    euler_angles[2] = receive_message.read_float32( 8 );
-
-    log.info("    >> Converted to Euler Angles:");
-    log.info("        >> angle[0]:  {:+f}\n", euler_angles[0] );
-    log.info("        >> angle[1]:  {:+f}\n", euler_angles[1] );
-    log.info("        >> angle[2]:  {:+f}\n", euler_angles[2] );
-    
-    return bytes_received;
-}
-#endif
-
-#ifdef DEBUG
-ssize_t Driver::get_quaternion(){
-
-    log.error( "## 1: Requesting Quaternion: (Filtered, Tared)" );;
-    if( 0 > write( get_quaternion_command ) ){
-        log.error("    <<!!: Command Error... abort!");
-        abort();
-    }
-
-    // to: receive-buffer:
-    Serial::Message<0,16,0> receive_message;
-    ssize_t bytes_received = 0;
-    if( 0 > (bytes_received = receive( receive_message))){
-        log.error( "    <<!!: Receive Error... abort!");;
-        abort();
-    }
-
-    Eigen::Quaternionf orientation_raw(0,0,0,0);
-    // confirmed that the return order is: [X,Y,Z,W]
-    orientation_raw.x() = receive_message.read_float32(0);
-    orientation_raw.y() = receive_message.read_float32(4);
-    orientation_raw.z() = receive_message.read_float32(8);
-    orientation_raw.w() = receive_message.read_float32(12);
-
-    log.info( "    >> Received Quaternion:    ({} bytes)", bytes_received);
-
-    Eigen::Quaterniond orientation_expanded( orientation_raw );
-    log.info( "        :w: {:+f}", orientation_expanded.w() );
-    log.info( "        :x: {:+f}", orientation_expanded.x() );
-    log.info( "        :y: {:+f}", orientation_expanded.y() );
-    log.info( "        :z: {:+f}", orientation_expanded.z() );
-
-    // composition order of euler angles: YXZ
-    // ... in theory, this corresponds to: 2-1-3 => 1, 0, 2 .... but this doesn't produce the right anwsers :(
-    Eigen::Matrix3d rotation = orientation_expanded.toRotationMatrix();
-    log.info( "    >> Converted to Euler Angles:");
-    log.info( "        [ {:+f}, {:+f}, {:+f} ]", rotation(0,0), rotation(0,1), rotation(0,2) );
-    log.info( "        [ {:+f}, {:+f}, {:+f} ]", rotation(1,0), rotation(1,1), rotation(1,2) );
-    log.info( "        [ {:+f}, {:+f}, {:+f} ]", rotation(2,0), rotation(2,1), rotation(2,2) );
-    
-    // composition order of euler angles: YXZ
-    // ... in theory, this corresponds to: 2-1-3 => 1, 0, 2 .... but this doesn't produce the right anwsers :(
-    Eigen::Vector3d euler_angles = rotation.eulerAngles( 1, 0, 2);
-
-    log.info( "    >> Converted to Euler Angles:");
-    log.info( "        >> angle[0]:  {:+f}", euler_angles[0] );
-    log.info( "        >> angle[1]:  {:+f}", euler_angles[1] );
-    log.info( "        >> angle[2]:  {:+f}", euler_angles[2] );
-
-    return bytes_received;
-}
-#endif
-
-#ifdef DEBUG
-ssize_t Driver::get_rotation_matrix(){
-
-    log.error( "## 1: Requesting Rotation Matrix: (Filtered, Tared) ");;
-    if( 0 > write( get_rotation_matrix_command ) ){
-        log.error( "    <<!!: Command Error... abort!");;
-        abort();
-    }
-
-    ssize_t bytes_received = 0;
-
-    // to: receive-buffer:
-    Serial::Message<0,36,0> receive_message;
-    if( 0 > (bytes_received = receive( receive_message))){
-        log.error( "    <<!!: Receive Error... abort!");;
-        abort();
-    }
-    log.info( "    >> Received Rotation Matrix ({} bytes).", bytes_received);
-
-    Eigen::Matrix3d rotation = Eigen::Matrix3d::Zero();
-    rotation(0,0) = receive_message.read_float32(  0 );
-    rotation(0,1) = receive_message.read_float32(  4 );
-    rotation(0,2) = receive_message.read_float32(  8 );
-    rotation(1,0) = receive_message.read_float32( 12 );
-    rotation(1,1) = receive_message.read_float32( 16 );
-    rotation(1,2) = receive_message.read_float32( 20 );
-    rotation(2,0) = receive_message.read_float32( 24 );
-    rotation(2,1) = receive_message.read_float32( 28 );
-    rotation(2,2) = receive_message.read_float32( 32 );
-
-    log.info( "    >> Converted to Euler Angles:");
-    log.info( "        [ {:+f}, {:+f}, {:+f} ]", rotation(0,0), rotation(0,1), rotation(0,2) );
-    log.info( "        [ {:+f}, {:+f}, {:+f} ]", rotation(1,0), rotation(1,1), rotation(1,2) );
-    log.info( "        [ {:+f}, {:+f}, {:+f} ]", rotation(2,0), rotation(2,1), rotation(2,2) );
-
-    // composition order of euler angles: YXZ
-    // ... in theory, this corresponds to: 2-1-3 => 1, 0, 2 .... but this doesn't produce the right anwsers :(
-    Eigen::Vector3d euler_angles = rotation.eulerAngles( 1, 0, 2);
-
-    log.info( "    >> Converted to Euler Angles:");
-    log.info( "        >> angle[0]:  {:+f}", euler_angles[0] );
-    log.info( "        >> angle[1]:  {:+f}", euler_angles[1] );
-    log.info( "        >> angle[2]:  {:+f}", euler_angles[2] );
-
-    return bytes_received;
-}
-#endif
-
-
-
-int Driver::monitor(){
-    Serial::Message<0,12,0> stream_receive_message;
-
+int Driver::monitor( void (*callback) (stream_message_t& buffer) ){
+    IMU::Response<12> stream_receive_message;
+    ssize_t bytes_read = -1;
     while( STREAM == state_ ){
-        ssize_t bytes_read = receive( stream_receive_message );
+    
+        bytes_read = receive( stream_receive_message );
 
-        if (0 == bytes_read) {
-            log.error("    !! Error while streaming!!");
-            log.error("    !! [{}]: {} !!", errno, strerror(errno) );
-            state_ = ERROR;
-        }
-
-        if( stream_receive_message.size() != static_cast<size_t>(bytes_read)){
+        if ( -2 == bytes_read ) {
+            // ignore frame; error is already handled
             continue;
-        } else { 
-            // fprintf( stderr, "... Monitoring Iteration:\n");
-
-            Eigen::Vector3d euler_angles(0,0,0);
-            euler_angles[0] = stream_receive_message.read_float32( 0 );
-            euler_angles[1] = stream_receive_message.read_float32( 4 );
-            euler_angles[2] = stream_receive_message.read_float32( 8 );
-
-
-            const double pitch = euler_angles[0];
-            const double yaw = euler_angles[1];
-            const double roll = euler_angles[2];
-            log.info( "....[ yaw: {:+f}, pitch: {:+f}, roll(+): {:+f} ]", 
-                      yaw, pitch, roll );
+        }else if ( -1 == bytes_read ) {
+            log.error("    !! Error while streaming: [{}]: {} !!", errno, strerror(errno) );
+            // return (state_ = ERROR);
+            continue;
+        }else if (stream_receive_message.size() != static_cast<size_t>(bytes_read)) {
+            log.error("    !! Unexpected byte count !!");
+            log.error("    !! Received: {} != {}", stream_receive_message.size(), bytes_read );
+            continue;
+        }else{ 
+            log.debug("    << Received: {} bytes", bytes_read);
         }
+
+        callback(stream_receive_message);
     }
 
-    return -1;  // error return path
+    return (state_ = ERROR);
 }
 
-template<typename message_t>
-ssize_t Driver::receive( message_t& receive_message ){
-    return conn_.receive( receive_message.data(), receive_message.size() );
+void Driver::stop(bool force){
+    if( force || STREAM == state_ ){
+        // 86 (0x56) Stop Streaming
+        constexpr IMU::Command<0,0> stop_stream_command( 86 );
+        write( stop_stream_command );
+    }
 }
 
-int Driver::stream() {
-    ssize_t bytes_written = 0;
+bool Driver::stream() {
+    bool success = true;
 
-    std::array<uint8_t, 8> stream_commands;
-    stream_commands.fill(0xFF); // the default (0xFF) is to stream nothing
-    stream_commands[0] = 1;     // Command 0x01: request the filtered, tared Euler Angles
+    std::array<uint8_t, 8> command_slots;
+    command_slots.fill(0xFF); // the default (0xFF) is to stream nothing
+    command_slots[0] = 1;     // Command 0x01: request the filtered, tared Euler Angles
 
-    IMU::Command<8> slot_command(0x50);
-    slot_command.write_bytes( stream_commands.data(), 0, 8);
-    slot_command.pack();
-    bytes_written = write( slot_command );
+    IMU::Command<8,0> slot_command( 80 );
+    IMU::Command<8,0> set_slots_command( 80 );
+    set_slots_command.write_bytes( command_slots.data(), 0, 8);
+    set_slots_command.pack();
+    success &= write( set_slots_command );
+    log.info("    >>>> Wrote Streaming Slots.");
 
-    log.info(">>>> Wrote Streaming Slots.");
-    usleep( bytes_written * 5000 );
-
-    IMU::Command<12> timing_command(0x52);
+    IMU::Command<12,0> timing_command( 82 );
     timing_command.write_uint32( stream_interval, 0 );
     timing_command.write_uint32( stream_duration, 4 );
     timing_command.write_uint32( stream_delay,    8 );
     timing_command.pack();
-    bytes_written = write( timing_command );
-    log.info(">>>> Wrote stream Timing.");
-    usleep( bytes_written * 5000 );
+    success &= write( timing_command );
+    log.info("    >>>> Wrote stream Timing: {}, {}, {}", 
+                stream_interval, stream_duration, stream_delay );
+    
 
-    bytes_written = write( start_stream_command );
-    log.info(">>>> Wrote Start-Streaming Command.");
-    usleep( bytes_written * 5000 );
+    constexpr IMU::Command<0,0> start_stream_command( 85 );
+    success &= write( start_stream_command );
+    log.info("    >>>> Wrote Start-Streaming Command.");
 
-    state_ = STREAM;
-    return 0;
+    if(success){
+        state_ = STREAM;
+        return EXIT_SUCCESS ;
+    }else{
+        state_ = ERROR;
+        return EXIT_FAILURE;
+    }
 }
 
-int Driver::stream( uint32_t desired_stream_interval ) {
+bool Driver::stream( uint32_t desired_stream_interval ) {
     if( 0 == desired_stream_interval ){
         return -1;
     }
@@ -329,7 +197,3 @@ int Driver::stream( uint32_t desired_stream_interval ) {
     return stream();
 }
 
-template<typename command_t>
-ssize_t Driver::write( const command_t& command) {
-    return conn_.write( command.data(), command.size() );
-}
