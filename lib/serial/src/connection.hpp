@@ -6,7 +6,9 @@
 // Serial API
 // https://blog.mbedded.ninja/programming/operating-systems/linux/linux-serial-ports-using-c-cpp/
 // https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
- 
+
+#include <spdlog/spdlog.h>
+
 namespace Serial {
 
 class Connection {
@@ -26,7 +28,12 @@ public:
 
 private:
     uint32_t baud_rate_;
+
     int fd_;
+
+    /// \brief handle for this class's logger
+    spdlog::logger& log;
+
     std::string path_;
 
 }; // class Interface

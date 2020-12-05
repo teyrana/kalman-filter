@@ -21,12 +21,14 @@ using Serial::Connection;
 Connection::Connection()
     : baud_rate_(0)
     , fd_(-1)      // error value
+    , log(*spdlog::get("console"))
     , path_("")
 {}
 
 Connection::Connection( const std::string _path, uint32_t _baud)
     : baud_rate_(_baud)
     , fd_(-1)      // error value
+    , log(*spdlog::get("console"))
     , path_(_path)
 {
     open();
@@ -49,21 +51,21 @@ int Connection::open( ){
         return -1;
     }
 
-    std::cout << "    >> Opening Serial port:\n"
-              << "        Path: " << path_ << std::endl;
+    log.info("    >> Opening Serial port:");
+    log.info("        Path: {}", path_ );
     //open serial port
     fd_ = ::open( path_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK );
     if (fd_ < 0) {
-        std::cerr << "    !!!! Error: could not open serial port !!!!" << std::endl;
+        log.error("    !!!! Error: could not open serial port !!!!");
         return -1;
     }
 
-    std::cout << "    >> Configuring serial port:\n"
-              << "        Baud: " << baud_rate_ << std::endl;
+    log.info("    >> Configuring serial port:");
+    log.info("        Baud: {}", baud_rate_ );
 
     struct termios tty;
     if (tcgetattr (fd_, &tty) != 0) {
-        std::cerr << "error " << errno << '(' << strerror(errno) << ") from tcgetattr" << std::endl;
+        log.error( "Could not set serial settings: {}: {}", errno, strerror(errno) );
         fd_ = -1;
         return -1;
     }
@@ -117,7 +119,7 @@ int Connection::open( ){
     }
 
     if (tcsetattr (fd_, TCSANOW, &tty) != 0) {
-        std::cerr << "::Error::Serial::Configure:" << errno << " from tcsetattr" << std::endl;
+        log.error( "Could not set serial settings: {}: {}", errno, strerror(errno) );
         return -1;
     }
 
@@ -137,7 +139,7 @@ int Connection::open( const std::string& _path, uint32_t _baud_rate){
 
 ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_count ){
     if( nullptr == receive_buffer ){
-        std::cerr << "Error::Serial::receive::(" << EFAULT << "): for destination data pointer: " << strerror(EFAULT) << std::endl;
+        log.error("Error::Serial::receive::({}) -- null receive_buffer", EFAULT); 
         return -1;
     }else{
         // Rule of thumb.  Not strictly necessary, but helps to lessen the I/O load
@@ -173,13 +175,13 @@ ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_count ){
             }
             
             if( receive_at >= receive_until ) {
-                // fprintf(stderr, "    << 6. Received all bytes (%ld); returning.\n", bytes_read);
+                // log.errorstderr, "    << 6. Received all bytes (%ld); returning.\n", bytes_read);
                 return receive_count;
             }
             continue;
         
         } else {
-            std::cerr << "Error::Serial::unknown error::(" << errno << "): " << strerror(errno) << std::endl;
+            log.error("Error::Serial::unknown error::({}): {}", errno, strerror(errno) );
             return -1;
         }
     }
@@ -192,7 +194,7 @@ ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_count ){
 ssize_t Connection::write( const uint8_t * write_buffer, ssize_t write_count ){
     auto bytes_written = ::write( fd_, write_buffer, write_count );
     if( write_count != bytes_written ){
-        std::cerr << "Error::Serial::write::(" << errno << "): " << strerror(errno) << std::endl;
+        log.error("Error::Serial::write::({}): {}", errno, strerror(errno) );
     }
     
     return bytes_written;

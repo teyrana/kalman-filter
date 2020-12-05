@@ -24,6 +24,7 @@ using IMU::Driver;
 
 Driver::Driver()
     : conn_("/dev/ttyS0", 9600)
+    , log( *spdlog::get("console"))
     , stream_interval( 250 * 1000)    // 250 ms
     , stream_duration( 25000 * 1000)  // 2.5s
     , stream_delay( 1000 )            // minimum delay
@@ -33,6 +34,7 @@ Driver::Driver()
 
 Driver::Driver( const std::string _path, uint32_t _baud)
     : conn_(_path, _baud)
+    , log( *spdlog::get("console"))
     , stream_interval( 250 * 1000)    // 250 ms
     , stream_duration( 25000 * 1000)  // 2.5s
     , stream_delay( 1000 )            // minimum delay
@@ -52,7 +54,7 @@ Driver::Driver( const std::string _path, uint32_t _baud)
     }
     
     state_ = IDLE;
-    return;    
+    return;
 }
 
 Driver::~Driver(){
@@ -69,7 +71,7 @@ int Driver::configure(){
         return -1;
     }
 
-    fprintf(stderr, ">> Configuring serial device...\n");
+    log.info(">> Configuring serial device...");
 
 //     ssize_t bytes_written = 0;
 //     { // set running average order:
@@ -100,7 +102,7 @@ int Driver::configure(){
 //         // usleep( bytes_written * 10 );
 //     }
 
-    fprintf(stderr, "<< Device Configured.\n");
+    log.info("<< Device Configured.\n");
 
     state_ = IDLE;
     return 0;
@@ -112,8 +114,8 @@ int Driver::monitor(){
         ssize_t bytes_read = receive( stream_receive_message );
 
         if (0 == bytes_read) {
-            fprintf(stderr, "    !! Error while streaming!! \n");
-            fprintf(stderr, "    !! [%d]: %s !!\n", errno, strerror(errno) );
+            log.error("    !! Error while streaming!!");
+            log.error("    !! [{}]: {} !!", errno, strerror(errno) );
             state_ = ERROR;
         }
 
@@ -131,9 +133,9 @@ int Driver::monitor(){
 #ifdef DEBUG
 ssize_t Driver::get_euler_angles(){
 
-    std::cerr << "## 1: Requesting Euler Angles: (Filtered, Tared) " << std::endl;
+    log.error( "## 1: Requesting Euler Angles: (Filtered, Tared) ");;
     if( 0 > write( get_euler_angles_command ) ) {
-        std::cerr << "    <<!!: Command Error... abort!" << std::endl;
+        log.error( "    <<!!: Command Error... abort!");;
         abort();
     }
 
@@ -141,16 +143,16 @@ ssize_t Driver::get_euler_angles(){
     Serial::Message<0,12,0> receive_message;
     ssize_t bytes_received = 0;
     if( 0 > (bytes_received = receive( receive_message))){
-        std::cerr << "    <<!!: Receive Error... abort!" << std::endl;
+        log.error( "    <<!!: Receive Error... abort!");;
         abort();
     }
 
-    fprintf(stdout, "    >> Received Euler Angles (%+ld bytes).\n", bytes_received);
+    log.info("    >> Received Euler Angles ({} bytes)", bytes_received);
     // for( size_t i = 0; i < receive_message.size(); ++i){
     //     if( 0 == i%8 ){
     //         fputc(' ', stderr);
     //     }
-    //     fprintf(stderr, "%02X ", receive_message[i]);
+    //     log.info(stderr, "%02X ", receive_message[i]);
     // }
     // fputc('\n', stderr);
      
@@ -159,10 +161,10 @@ ssize_t Driver::get_euler_angles(){
     euler_angles[1] = receive_message.read_float32( 0 );
     euler_angles[2] = receive_message.read_float32( 8 );
 
-    fprintf( stdout, "    >> Converted to Euler Angles: \n");
-    fprintf( stdout, "        >> angle[0]:  %+f\n", euler_angles[0] );
-    fprintf( stdout, "        >> angle[1]:  %+f\n", euler_angles[1] );
-    fprintf( stdout, "        >> angle[2]:  %+f\n", euler_angles[2] );
+    log.info("    >> Converted to Euler Angles:");
+    log.info("        >> angle[0]:  {:+f}\n", euler_angles[0] );
+    log.info("        >> angle[1]:  {:+f}\n", euler_angles[1] );
+    log.info("        >> angle[2]:  {:+f}\n", euler_angles[2] );
     
     return bytes_received;
 }
@@ -171,9 +173,9 @@ ssize_t Driver::get_euler_angles(){
 #ifdef DEBUG
 ssize_t Driver::get_quaternion(){
 
-    std::cerr << "## 1: Requesting Quaternion: (Filtered, Tared)" << std::endl;
+    log.error( "## 1: Requesting Quaternion: (Filtered, Tared)" );;
     if( 0 > write( get_quaternion_command ) ){
-        std::cerr << "    <<!!: Command Error... abort!" << std::endl;
+        log.error("    <<!!: Command Error... abort!");
         abort();
     }
 
@@ -181,7 +183,7 @@ ssize_t Driver::get_quaternion(){
     Serial::Message<0,16,0> receive_message;
     ssize_t bytes_received = 0;
     if( 0 > (bytes_received = receive( receive_message))){
-        std::cerr << "    <<!!: Receive Error... abort!" << std::endl;
+        log.error( "    <<!!: Receive Error... abort!");;
         abort();
     }
 
@@ -192,30 +194,30 @@ ssize_t Driver::get_quaternion(){
     orientation_raw.z() = receive_message.read_float32(8);
     orientation_raw.w() = receive_message.read_float32(12);
 
-    fprintf( stdout, "    >> Received Quaternion:    (%+ld bytes).\n", bytes_received);
+    log.info( "    >> Received Quaternion:    ({} bytes)", bytes_received);
 
     Eigen::Quaterniond orientation_expanded( orientation_raw );
-    fprintf( stdout, "        :w: %+f\n", orientation_expanded.w() );
-    fprintf( stdout, "        :x: %+f\n", orientation_expanded.x() );
-    fprintf( stdout, "        :y: %+f\n", orientation_expanded.y() );
-    fprintf( stdout, "        :z: %+f\n", orientation_expanded.z() );
+    log.info( "        :w: {:+f}", orientation_expanded.w() );
+    log.info( "        :x: {:+f}", orientation_expanded.x() );
+    log.info( "        :y: {:+f}", orientation_expanded.y() );
+    log.info( "        :z: {:+f}", orientation_expanded.z() );
 
     // composition order of euler angles: YXZ
     // ... in theory, this corresponds to: 2-1-3 => 1, 0, 2 .... but this doesn't produce the right anwsers :(
     Eigen::Matrix3d rotation = orientation_expanded.toRotationMatrix();
-    fprintf( stdout, "    >> Converted to Euler Angles: \n");
-    fprintf( stdout, "        [ %+f, %+f, %+f ]\n", rotation(0,0), rotation(0,1), rotation(0,2) );
-    fprintf( stdout, "        [ %+f, %+f, %+f ]\n", rotation(1,0), rotation(1,1), rotation(1,2) );
-    fprintf( stdout, "        [ %+f, %+f, %+f ]\n", rotation(2,0), rotation(2,1), rotation(2,2) );
+    log.info( "    >> Converted to Euler Angles:");
+    log.info( "        [ {:+f}, {:+f}, {:+f} ]", rotation(0,0), rotation(0,1), rotation(0,2) );
+    log.info( "        [ {:+f}, {:+f}, {:+f} ]", rotation(1,0), rotation(1,1), rotation(1,2) );
+    log.info( "        [ {:+f}, {:+f}, {:+f} ]", rotation(2,0), rotation(2,1), rotation(2,2) );
     
     // composition order of euler angles: YXZ
     // ... in theory, this corresponds to: 2-1-3 => 1, 0, 2 .... but this doesn't produce the right anwsers :(
     Eigen::Vector3d euler_angles = rotation.eulerAngles( 1, 0, 2);
 
-    fprintf( stdout, "    >> Converted to Euler Angles: \n");
-    fprintf( stdout, "        >> angle[0]:  %+f\n", euler_angles[0] );
-    fprintf( stdout, "        >> angle[1]:  %+f\n", euler_angles[1] );
-    fprintf( stdout, "        >> angle[2]:  %+f\n", euler_angles[2] );
+    log.info( "    >> Converted to Euler Angles:");
+    log.info( "        >> angle[0]:  {:+f}", euler_angles[0] );
+    log.info( "        >> angle[1]:  {:+f}", euler_angles[1] );
+    log.info( "        >> angle[2]:  {:+f}", euler_angles[2] );
 
     return bytes_received;
 }
@@ -224,9 +226,9 @@ ssize_t Driver::get_quaternion(){
 #ifdef DEBUG
 ssize_t Driver::get_rotation_matrix(){
 
-    std::cerr << "## 1: Requesting Rotation Matrix: (Filtered, Tared) " << std::endl;
+    log.error( "## 1: Requesting Rotation Matrix: (Filtered, Tared) ");;
     if( 0 > write( get_rotation_matrix_command ) ){
-        std::cerr << "    <<!!: Command Error... abort!" << std::endl;
+        log.error( "    <<!!: Command Error... abort!");;
         abort();
     }
 
@@ -235,10 +237,10 @@ ssize_t Driver::get_rotation_matrix(){
     // to: receive-buffer:
     Serial::Message<0,36,0> receive_message;
     if( 0 > (bytes_received = receive( receive_message))){
-        std::cerr << "    <<!!: Receive Error... abort!" << std::endl;
+        log.error( "    <<!!: Receive Error... abort!");;
         abort();
     }
-    fprintf(stdout, "    >> Received Rotation Matrix (%+ld bytes).\n", bytes_received);
+    log.info( "    >> Received Rotation Matrix ({} bytes).", bytes_received);
 
     Eigen::Matrix3d rotation = Eigen::Matrix3d::Zero();
     rotation(0,0) = receive_message.read_float32(  0 );
@@ -251,19 +253,19 @@ ssize_t Driver::get_rotation_matrix(){
     rotation(2,1) = receive_message.read_float32( 28 );
     rotation(2,2) = receive_message.read_float32( 32 );
 
-    fprintf( stdout, "    >> Converted to Euler Angles: \n");
-    fprintf( stdout, "        [ %+f, %+f, %+f ]\n", rotation(0,0), rotation(0,1), rotation(0,2) );
-    fprintf( stdout, "        [ %+f, %+f, %+f ]\n", rotation(1,0), rotation(1,1), rotation(1,2) );
-    fprintf( stdout, "        [ %+f, %+f, %+f ]\n", rotation(2,0), rotation(2,1), rotation(2,2) );
+    log.info( "    >> Converted to Euler Angles:");
+    log.info( "        [ {:+f}, {:+f}, {:+f} ]", rotation(0,0), rotation(0,1), rotation(0,2) );
+    log.info( "        [ {:+f}, {:+f}, {:+f} ]", rotation(1,0), rotation(1,1), rotation(1,2) );
+    log.info( "        [ {:+f}, {:+f}, {:+f} ]", rotation(2,0), rotation(2,1), rotation(2,2) );
 
     // composition order of euler angles: YXZ
     // ... in theory, this corresponds to: 2-1-3 => 1, 0, 2 .... but this doesn't produce the right anwsers :(
     Eigen::Vector3d euler_angles = rotation.eulerAngles( 1, 0, 2);
 
-    fprintf( stdout, "    >> Converted to Euler Angles: \n");
-    fprintf( stdout, "        >> angle[0]:  %+f\n", euler_angles[0] );
-    fprintf( stdout, "        >> angle[1]:  %+f\n", euler_angles[1] );
-    fprintf( stdout, "        >> angle[2]:  %+f\n", euler_angles[2] );
+    log.info( "    >> Converted to Euler Angles:");
+    log.info( "        >> angle[0]:  {:+f}", euler_angles[0] );
+    log.info( "        >> angle[1]:  {:+f}", euler_angles[1] );
+    log.info( "        >> angle[2]:  {:+f}", euler_angles[2] );
 
     return bytes_received;
 }
@@ -283,7 +285,8 @@ int Driver::stream() {
     memset( const_cast<uint8_t*>(slot_command.data() + 3), 0xFF, 7 );
     slot_command.pack();
     bytes_written = write( slot_command );
-    fprintf(stdout, ">>>> Wrote Streaming Slots.\n");
+
+    log.info(">>>> Wrote Streaming Slots.");
     // slot_command.fprinth(stdout);
     usleep( bytes_written * 5000 );
 
@@ -295,12 +298,12 @@ int Driver::stream() {
     timing_command.pack();
 
     bytes_written = write( timing_command );
-    fprintf(stdout, ">>>> Wrote stream Timing.\n");
+    log.info(">>>> Wrote stream Timing.");
     usleep( bytes_written * 5000 );
 
     // // (3) Start streaming, using the current configuration:
     bytes_written = write( start_stream_command );
-    fprintf(stdout, ">>>> Wrote Start-Streaming Command.\n");
+    log.info(">>>> Wrote Start-Streaming Command.");
     usleep( bytes_written * 5000 );
 
     return 0;

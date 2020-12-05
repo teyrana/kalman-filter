@@ -10,6 +10,7 @@
 
 // 3rd-Party Library Includes
 #include <Eigen/Geometry>
+#include <spdlog/spdlog.h>
 
 #include "command.hpp"
 #include "../../serial/src/connection.hpp"
@@ -53,8 +54,10 @@ public:
     ssize_t get_rotation_matrix();
 #endif  // #ifdef DEBUG
 
-private:
+private:  // properties
     Serial::Connection conn_;
+
+    spdlog::logger& log;
 
     /// \brief output streaming data once every 'streaming_interval' microseconds
     uint32_t stream_interval;
@@ -67,7 +70,7 @@ private:
 
     DriverState_t state_;
 
-private:
+private:  // functions
 
     template<typename message_t>
     ssize_t receive( message_t& receive_message);
