@@ -113,11 +113,11 @@ int Driver::configure(){
 }
 
 int Driver::monitor( void (*callback) (stream_message_t& buffer) ){
-    IMU::Response<12> stream_receive_message;
+    stream_message_t receive_buffer;
     ssize_t bytes_read = -1;
     while( STREAM == state_ ){
     
-        bytes_read = receive( stream_receive_message );
+        bytes_read = receive( receive_buffer );
 
         if ( -2 == bytes_read ) {
             // ignore frame; error is already handled
@@ -126,15 +126,15 @@ int Driver::monitor( void (*callback) (stream_message_t& buffer) ){
             log.error("    !! Error while streaming: [{}]: {} !!", errno, strerror(errno) );
             // return (state_ = ERROR);
             continue;
-        }else if (stream_receive_message.size() != static_cast<size_t>(bytes_read)) {
+        }else if( receive_buffer.size() != static_cast<size_t>(bytes_read)) {
             log.error("    !! Unexpected byte count !!");
-            log.error("    !! Received: {} != {}", stream_receive_message.size(), bytes_read );
+            log.error("    !! Received: {} != {}", receive_buffer.size(), bytes_read );
             continue;
-        }else{ 
-            log.debug("    << Received: {} bytes", bytes_read);
+        // }else{
+        //     log.debug("    << Received: {} bytes", bytes_read);
         }
 
-        callback(stream_receive_message);
+        callback( receive_buffer );
     }
 
     return (state_ = ERROR);
@@ -150,10 +150,6 @@ void Driver::stop(bool force){
 
 bool Driver::stream() {
     bool success = true;
-
-    std::array<uint8_t, 8> command_slots;
-    command_slots.fill(0xFF); // the default (0xFF) is to stream nothing
-    command_slots[0] = 1;     // Command 0x01: request the filtered, tared Euler Angles
 
     IMU::Command<8,0> slot_command( 80 );
     IMU::Command<8,0> set_slots_command( 80 );

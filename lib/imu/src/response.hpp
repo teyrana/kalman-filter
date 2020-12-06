@@ -84,6 +84,21 @@ public:
     /// \brief read a value, starting from the given data index 
     uint32_t read_uint32( size_t index ) const { return _read_uint32(payload_index + index); }
 
+    Eigen::Vector3d& read_vector3d( size_t index, Eigen::Vector3d& dest ){   
+        dest[0] = _read_float32( payload_index + index + 0 );
+        dest[1] = _read_float32( payload_index + index + 4 );
+        dest[2] = _read_float32( payload_index + index + 8 );
+        return dest;
+    }
+
+    Eigen::Vector4d& read_vector4d( size_t index, Eigen::Vector4d& dest ){   
+        dest[0] = _read_float32( payload_index + index + 0 );
+        dest[1] = _read_float32( payload_index + index + 4 );
+        dest[2] = _read_float32( payload_index + index + 8 );
+        dest[3] = _read_float32( payload_index + index +12 );
+        return dest;
+    }
+
     constexpr size_t size() const { return buffer.size(); }
 
     // 0x1 (Bit 0) – Success/Failure; comprised of one byte with non-zero values indicating failure.

@@ -43,6 +43,17 @@ public:
     // // (explicitly defaults set to 0 -- hardware defaults)
     // static constexpr uint8_t axis_mapping = 0;
 
+    // there are 8 possible slots in the command, as implemented in hardware
+    std::array<uint8_t, 8> command_slots = {
+            1,  // Command 0x01: request the filtered, tared Euler Angles (returns 12 bytes)
+            64, // Command 0x40: get all raw sensor data:   gyro x3, accel x3, compass x3 (returns 3x3x4==36 bytes)
+                // note: the default (0xFF) is to stream nothing
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};   
+
+    /// \brief the expected type of each streaming message;
+    typedef IMU::Response<48> stream_message_t;
+    
+
 public:
     Driver();
     Driver(std::string _path, uint32_t _baudrate);
@@ -50,9 +61,6 @@ public:
 
     int configure();
 
-    /// \brief the expected type of each streaming message;
-    typedef IMU::Response<12> stream_message_t;
-    
     /// \brief watch the incoming message stream, and invoke the callback with each increment of data 
     int monitor( void (*callback) (stream_message_t& buffer) );
 

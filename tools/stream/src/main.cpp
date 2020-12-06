@@ -3,6 +3,7 @@
 // standard library includes
 #include <iostream>
 #include <iterator>
+#include <memory>
 
 // 3rd-Party Library Includes
 #include <Eigen/Geometry>
@@ -12,10 +13,19 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_INFO
 
-// project includes
-// project includes
+// 1st-party project includes
 #include "driver.hpp"
 
+static std::unique_ptr<IMU::Driver> driver;
+
+// return the filtered, tared orientation estimate in euler angle form
+static Eigen::Vector3d filtered_euler_angles;
+// gyro rate: counts per degrees/sec
+static Eigen::Vector3d raw_gyro;
+// accelerometer: counts per g
+static Eigen::Vector3d raw_accel;
+// magnetometer: count per gauss
+static Eigen::Vector3d raw_magno;
 
 void setup_logging() {
 
@@ -41,42 +51,47 @@ void handle_stream_data( message_t& stream_message){
     const uint32_t millisecond_timestamp = stream_message.timestamp();
     const double second_timestamp = (static_cast<double>(millisecond_timestamp)/1000000);
 
-    const double pitch = stream_message.read_float32( 0 );
-    const double yaw = stream_message.read_float32( 4 );
-    const double roll = stream_message.read_float32( 8 );
+    {   // filtered data: 
+        stream_message.read_vector3d(0, filtered_euler_angles );
 
-    SPDLOG_INFO("#### ({:4d}) @{:.3f}    [ pitch: {:+f}, yaw: {:+f}, roll(+): {:+f} ]", 
-                    sequence_number, second_timestamp, pitch, yaw, roll );
+        {   // DEBUG
+            const double pitch = filtered_euler_angles[0];
+            const double yaw = filtered_euler_angles[1];
+            const double roll = filtered_euler_angles[2];
+            SPDLOG_INFO("    (#{:4d}) @{:.3f}    [ pitch: {:+f}, yaw: {:+f}, roll(+): {:+f} ]", 
+                        sequence_number, second_timestamp, pitch, yaw, roll );
+        }   // DEBUG
+    }
 
-    // Eigen::Vector3d euler_angles(0,0,0);
-    // euler_angles[0] = stream_message.read_float32( 0 );
-    // euler_angles[1] = stream_message.read_float32( 4 );
-    // euler_angles[2] = stream_message.read_float32( 8 );
-
-    // tbc...
+    {   // raw data: 36 bytes: Vector(float x3), Vector(float x3), Vector(float x3)
+        stream_message.read_vector3d(12, raw_gyro);
+        stream_message.read_vector3d(24, raw_accel);
+        stream_message.read_vector3d(36, raw_magno);
+    }
 }
 
 int main()
 {
     setup_logging();
 
-    SPDLOG_INFO("## Setting up IMU Driver...");
-    IMU::Driver imu("/dev/ttyUSB0", 115200);
+    SPDLOG_INFO("## Creating IMU Driver...");
+    driver = std::make_unique<IMU::Driver>("/dev/ttyUSB0", 115200);
 
-    if( IMU::Driver::IDLE != imu.state()){
+    SPDLOG_INFO("## Setting up IMU Driver...");
+    if( IMU::Driver::IDLE != driver->state()){
         SPDLOG_INFO("<< Failed to start up IMU. Exiting.");
         return EXIT_FAILURE;
     }
 
     SPDLOG_INFO( "==== Starting Streams: ==== ");
-    if( EXIT_SUCCESS == imu.stream(500)){
+    if( EXIT_SUCCESS == driver->stream(500)){
         SPDLOG_INFO("==== Monitoring: ====");
-        imu.monitor( handle_stream_data );
+        driver->monitor( handle_stream_data );
         return EXIT_SUCCESS;
     } else {
         SPDLOG_ERROR("!! Error setting up stream !!");
         ::sleep(1);
-        imu.stop(true);
+        driver->stop(true);
         return EXIT_FAILURE;
     }
 }
