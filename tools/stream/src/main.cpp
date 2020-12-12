@@ -1,9 +1,14 @@
 // GPL v3 (c) 2020, Daniel Williams 
 
 // standard library includes
+#include <cstdlib>
+#include <cstdio>
 #include <iostream>
 #include <iterator>
 #include <memory>
+
+// POSIX / Linux specific handlers:
+#include <signal.h>
 
 // 3rd-Party Library Includes
 #include <Eigen/Geometry>
@@ -16,7 +21,7 @@
 // 1st-party project includes
 #include "driver.hpp"
 
-static std::unique_ptr<IMU::Driver> driver;
+std::unique_ptr<IMU::Driver> driver;
 
 // return the filtered, tared orientation estimate in euler angle form
 static Eigen::Vector3d filtered_euler_angles;
@@ -64,22 +69,33 @@ void handle_stream_data( message_t& stream_message){
     }
 
     {   // raw data: 36 bytes: Vector(float x3), Vector(float x3), Vector(float x3)
-        stream_message.read_vector3d(12, raw_gyro);
-        stream_message.read_vector3d(24, raw_accel);
-        stream_message.read_vector3d(36, raw_magno);
+        // stream_message.read_vector3d(12, raw_gyro);
+        // stream_message.read_vector3d(24, raw_accel);
+        // stream_message.read_vector3d(36, raw_magno);
     }
+}
+
+static void sig_handler(int _)
+{
+    (void)_;  // quiet "unused variable" warnings
+    SPDLOG_WARN("Ctrl-C Detected.  Exiting.");
+    IMU::Driver::streaming = false;
+    
 }
 
 int main()
 {
     setup_logging();
 
+    // register signal handler (for example: ctrl-c)
+    signal(SIGINT, sig_handler);
+
     SPDLOG_INFO("## Creating IMU Driver...");
     driver = std::make_unique<IMU::Driver>("/dev/ttyUSB0", 115200);
 
     SPDLOG_INFO("## Setting up IMU Driver...");
     if( IMU::Driver::IDLE != driver->state()){
-        SPDLOG_INFO("<< Failed to start up IMU. Exiting.");
+        SPDLOG_ERROR("<< Failed to connect IMU. Exiting.");
         return EXIT_FAILURE;
     }
 
@@ -91,7 +107,7 @@ int main()
     } else {
         SPDLOG_ERROR("!! Error setting up stream !!");
         ::sleep(1);
-        driver->stop(true);
+        driver->stop();
         return EXIT_FAILURE;
     }
 }

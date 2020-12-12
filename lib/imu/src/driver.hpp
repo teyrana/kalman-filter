@@ -4,6 +4,9 @@
 #ifndef _IMU_INTERFACE_HPP_
 #define _IMU_INTERFACE_HPP_
 
+// POSIX / Linux Headers
+#include <signal.h>
+
 // Serial API
 // https://blog.mbedded.ninja/programming/operating-systems/linux/linux-serial-ports-using-c-cpp/
 // https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
@@ -12,6 +15,7 @@
 #include <Eigen/Geometry>
 #include <spdlog/spdlog.h>
 
+// 1st-party Internal Headers
 #include "../../serial/src/connection.hpp"
 #include "command.hpp"
 #include "response.hpp"
@@ -30,7 +34,8 @@ public:
         STARTUP = CONNECTED_FLAG,
         // the peer device is ready to use (i.e. configured)
         IDLE = CONNECTED_FLAG | CONFIGURED_FLAG, 
-        STREAM = CONNECTED_FLAG | CONFIGURED_FLAG | STREAMING_FLAG
+        STREAM = CONNECTED_FLAG | CONFIGURED_FLAG | STREAMING_FLAG,
+        SHUTDOWN = CONFIGURED_FLAG
     };
 
     // Remap axes: from: right-up-forward / "Natural Axes" (hardware default)
@@ -52,7 +57,7 @@ public:
 
     /// \brief the expected type of each streaming message;
     typedef IMU::Response<48> stream_message_t;
-    
+
 
 public:
     Driver();
@@ -66,8 +71,8 @@ public:
 
     int inline state(){ return state_; }
 
-    /// \param force send a stop command, regardless of driver state
-    void stop(bool force=false);
+    /// \brief stop the driver & connection, and shutdown
+    void stop();
 
     bool stream();
 
@@ -85,6 +90,9 @@ public:
 
     template<typename command_t>
     bool write( const command_t& cmd);
+
+public:  // properties
+    static volatile sig_atomic_t streaming;
 
 private:  // properties
     Serial::Connection conn_;

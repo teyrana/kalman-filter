@@ -18,6 +18,8 @@
 
 using IMU::Driver;
 
+volatile sig_atomic_t IMU::Driver::streaming = false;
+
 Driver::Driver()
     : conn_("/dev/ttyS0", 9600)
     , log( *spdlog::get("console"))
@@ -52,6 +54,7 @@ Driver::Driver( const std::string _path, uint32_t _baud)
 }
 
 Driver::~Driver(){
+    state_ = SHUTDOWN;
     stop();
 }
 
@@ -115,7 +118,7 @@ int Driver::configure(){
 int Driver::monitor( void (*callback) (stream_message_t& buffer) ){
     stream_message_t receive_buffer;
     ssize_t bytes_read = -1;
-    while( STREAM == state_ ){
+    while( streaming ){
     
         bytes_read = receive( receive_buffer );
 
@@ -136,15 +139,19 @@ int Driver::monitor( void (*callback) (stream_message_t& buffer) ){
 
         callback( receive_buffer );
     }
+    log.info("    <<<< monitor loop finished.");
+    state_ = IDLE;
 
-    return (state_ = ERROR);
+    return state_;
 }
 
-void Driver::stop(bool force){
-    if( force || STREAM == state_ ){
+void Driver::stop(){
+    if( conn_.is_open() ){
         // 86 (0x56) Stop Streaming
         constexpr IMU::Command<0,0> stop_stream_command( 86 );
         write( stop_stream_command );
+    
+        conn_.flush();
     }
 }
 
@@ -174,9 +181,11 @@ bool Driver::stream() {
 
     if(success){
         state_ = STREAM;
+        streaming = true;
         return EXIT_SUCCESS ;
     }else{
         state_ = ERROR;
+        streaming = false;
         return EXIT_FAILURE;
     }
 }
