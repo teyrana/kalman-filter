@@ -23,6 +23,9 @@
 
 std::unique_ptr<IMU::Driver> driver;
 
+static size_t sequence_number = -1;
+static double second_timestamp = NAN;
+
 // return the filtered, tared orientation estimate in euler angle form
 static Eigen::Vector3d filtered_euler_angles;
 // gyro rate: counts per degrees/sec
@@ -47,14 +50,12 @@ void setup_logging() {
     SPDLOG_INFO("Logging started");
 }
 
-static size_t sequence_number = -1;
-
 template<typename message_t>
 void handle_stream_data( message_t& stream_message){
     ++sequence_number;
 
     const uint32_t millisecond_timestamp = stream_message.timestamp();
-    const double second_timestamp = (static_cast<double>(millisecond_timestamp)/1000000);
+    second_timestamp = (static_cast<double>(millisecond_timestamp)/1000000);
 
     {   // filtered data: 
         stream_message.read_vector3d(0, filtered_euler_angles );
@@ -69,10 +70,18 @@ void handle_stream_data( message_t& stream_message){
     }
 
     {   // raw data: 36 bytes: Vector(float x3), Vector(float x3), Vector(float x3)
-        // stream_message.read_vector3d(12, raw_gyro);
-        // stream_message.read_vector3d(24, raw_accel);
-        // stream_message.read_vector3d(36, raw_magno);
+        stream_message.read_vector3d(12, raw_gyro);
+        stream_message.read_vector3d(24, raw_accel);
+        stream_message.read_vector3d(36, raw_magno);
+
+        {   // DEBUG
+            SPDLOG_INFO("               [ {:+f}, {:+f}, {:+f} ][ {:+f}, {:+f}, {:+f} ][ {:+f}, {:+f}, {:+f} ]", 
+                        raw_gyro[0],raw_gyro[1],raw_gyro[2],
+                        raw_accel[0],raw_accel[1],raw_accel[2],
+                        raw_magno[0],raw_magno[1],raw_magno[2] );
+        }   // DEBUG
     }
+
 }
 
 static void sig_handler(int _)
@@ -80,8 +89,8 @@ static void sig_handler(int _)
     (void)_;  // quiet "unused variable" warnings
     SPDLOG_WARN("Ctrl-C Detected.  Exiting.");
     IMU::Driver::streaming = false;
-    
 }
+
 
 int main()
 {
@@ -91,12 +100,17 @@ int main()
     signal(SIGINT, sig_handler);
 
     SPDLOG_INFO("## Creating IMU Driver...");
-    driver = std::make_unique<IMU::Driver>("/dev/ttyUSB0", 115200);
+    driver = std::make_unique<IMU::Driver>();
+
+    SPDLOG_INFO("## Creating IMU Driver...");
+    driver->open("/dev/ttyUSB0", 115200);
 
     SPDLOG_INFO("## Setting up IMU Driver...");
     if( IMU::Driver::IDLE != driver->state()){
         SPDLOG_ERROR("<< Failed to connect IMU. Exiting.");
         return EXIT_FAILURE;
+    } else {
+        SPDLOG_ERROR(">> Connected to IMU.");
     }
 
     SPDLOG_INFO( "==== Starting Streams: ==== ");

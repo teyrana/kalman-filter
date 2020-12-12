@@ -21,36 +21,31 @@ using IMU::Driver;
 volatile sig_atomic_t IMU::Driver::streaming = false;
 
 Driver::Driver()
-    : conn_("/dev/ttyS0", 9600)
-    , log( *spdlog::get("console"))
-    , stream_interval( 500 * 1000)    // 500 ms
-    , stream_duration( 25000 * 1000)  // 2.5s
-    , stream_delay( 1000 )            // minimum delay
-    , state_(ERROR)
-{}
-
-Driver::Driver( const std::string _path, uint32_t _baud)
-    : conn_(_path, _baud)
+    : conn_()
     , log( *spdlog::get("console"))
     , stream_interval( 500 * 1000)    // 500 ms
     // , stream_duration( 0xffffffff) // production
     , stream_duration( 30 * 1000000 ) // 30s -- development
     , stream_delay( 1000 )            // minimum delay
     , state_(ERROR)
-{
+{}
+
+int Driver::open( const std::string _path, uint32_t _baud){
+    conn_.open( _path, _baud );
+
     if( !conn_.is_open() ){
         state_ = ERROR;
-        return;
+        return -1;
     }
     state_ = STARTUP;
     
     if( 0 != configure() ){
         state_ = ERROR;
-        return;
+        return -1;
     }
     
     state_ = IDLE;
-    return;
+    return 0;
 }
 
 Driver::~Driver(){
@@ -70,7 +65,7 @@ int Driver::configure(){
         set_response_header_command[5] = IMU::Response<0>::flags();
         set_response_header_command.pack();
         log.debug("    >> Setting response header fields => 0x{:02X}", IMU::Response<0>::flags() );
-        write( set_response_header_command );
+        request( set_response_header_command );
     
         // IMU::Command<0, 4> get_response_header_command( 222 );
         // write( get_response_header_command );
@@ -88,18 +83,18 @@ int Driver::configure(){
     }{ // 116 (x074) Set Axes Directions:
         IMU::Command<1,0> set_axis_directions_command( 116, axis_mapping );
         log.debug("    >> Mapping Axes => 0x{:02X} ...", set_axis_directions_command[2]);
-        write( set_axis_directions_command );
+        request( set_axis_directions_command );
         
     }{  // 96 (0x60)  Set Tare with current orientation
         constexpr IMU::Command<0,0> set_tare_command( 96 );
         log.debug("    >> Setting Tare position to current orientation ...");
-        write( set_tare_command );
+        request( set_tare_command );
         
     }{  // 95 (0x5F) Set internal timestamp ( == 0 )(=> usec since startup)
         IMU::Command<4,0> zero_timestamp_command(95);
         zero_timestamp_command.pack();
         log.debug("    >> Zero Timestamp position == 0 ...");
-        write( zero_timestamp_command );
+        request( zero_timestamp_command );
 
     }{  // // 16 (0x10) Set Euler angle decomposition order
         // auto set_euler_order_command = Command<0>( 156 );
@@ -150,7 +145,6 @@ void Driver::stop(){
         // 86 (0x56) Stop Streaming
         constexpr IMU::Command<0,0> stop_stream_command( 86 );
         write( stop_stream_command );
-    
         conn_.flush();
     }
 }
@@ -158,11 +152,10 @@ void Driver::stop(){
 bool Driver::stream() {
     bool success = true;
 
-    IMU::Command<8,0> slot_command( 80 );
     IMU::Command<8,0> set_slots_command( 80 );
     set_slots_command.write_bytes( command_slots.data(), 0, 8);
     set_slots_command.pack();
-    success &= write( set_slots_command );
+    success &= request( set_slots_command );
     log.info("    >>>> Wrote Streaming Slots.");
 
     IMU::Command<12,0> timing_command( 82 );
@@ -170,13 +163,13 @@ bool Driver::stream() {
     timing_command.write_uint32( stream_duration, 4 );
     timing_command.write_uint32( stream_delay,    8 );
     timing_command.pack();
-    success &= write( timing_command );
+    success &= request( timing_command );
     log.info("    >>>> Wrote stream Timing: {}, {}, {}", 
                 stream_interval, stream_duration, stream_delay );
     
 
     constexpr IMU::Command<0,0> start_stream_command( 85 );
-    success &= write( start_stream_command );
+    success &= request( start_stream_command );
     log.info("    >>>> Wrote Start-Streaming Command.");
 
     if(success){

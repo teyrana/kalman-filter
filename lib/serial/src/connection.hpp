@@ -18,7 +18,7 @@ namespace Serial {
 class Connection {
 public:
     Connection();
-    Connection(std::string _path, uint32_t _baudrate);
+
     ~Connection();
 
     /// \brief sleep this connection until all outgoing bytes have been sent.
@@ -29,7 +29,6 @@ public:
 
     bool is_open() const;
 
-    int open();
     int open( const std::string& _path, uint32_t _baudrate);
 
     ssize_t receive( uint8_t* receive_buffer, ssize_t receive_count );

@@ -61,13 +61,14 @@ public:
 
 public:
     Driver();
-    Driver(std::string _path, uint32_t _baudrate);
     ~Driver();
 
     int configure();
 
     /// \brief watch the incoming message stream, and invoke the callback with each increment of data 
     int monitor( void (*callback) (stream_message_t& buffer) );
+
+    int open(std::string _path, uint32_t _baudrate);
 
     int inline state(){ return state_; }
 
@@ -76,20 +77,22 @@ public:
 
     bool stream();
 
+    template<typename command_t>
+    bool request( const command_t& cmd );
+
+    template<typename command_t, typename response_t>
+    bool request( const command_t& cmd, response_t& res );
 
     /// \param desired_stream_interval interval, in msec
     bool stream( uint32_t desired_stream_interval );
 
-public:    
+private:    
 
     template<typename response_t>
     ssize_t receive( response_t& res);
 
-    template<typename command_t, typename response_t>
-    response_t& request( const command_t& cmd, response_t& res );
-
     template<typename command_t>
-    bool write( const command_t& cmd);
+    void write( const command_t& cmd);
 
 public:  // properties
     static volatile sig_atomic_t streaming;

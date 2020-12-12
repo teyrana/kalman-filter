@@ -4,7 +4,6 @@
 #include <cstdio>
 #include <cstring>
 #include <iostream>
-#include <memory>
 
 // Posix / Linux System Includes
 #include <fcntl.h>
@@ -170,13 +169,20 @@ int main()
 {
     setup_logging();
 
-    SPDLOG_INFO("## Setting up IMU Connection...");
-    driver = std::make_unique<IMU::Driver>("/dev/ttyUSB0", 115200);
-    if( IMU::Driver::IDLE != driver->state()){
-        SPDLOG_ERROR("<< Failed to start up IMU. Exiting.");
-        return EXIT_FAILURE;
-    }
+    SPDLOG_INFO("## Creating IMU Driver...");
+    driver = std::make_unique<IMU::Driver>();
 
+    SPDLOG_INFO("## Creating IMU Driver...");
+    driver->open("/dev/ttyUSB0", 115200);
+
+    SPDLOG_INFO("## Setting up IMU Driver...");
+    if( 0 != driver->open("/dev/ttyUSB0", 115200)){
+        SPDLOG_ERROR("<< Failed to connect IMU. Exiting.");
+        return EXIT_FAILURE;
+    } else {
+        SPDLOG_ERROR(">> Connected to IMU.");
+    }
+    
     get_quaternion();
 
     get_rotation_matrix();

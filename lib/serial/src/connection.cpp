@@ -25,15 +25,6 @@ Connection::Connection()
     , path_("")
 {}
 
-Connection::Connection( const std::string _path, uint32_t _baud)
-    : baud_rate_(_baud)
-    , fd_(-1)      // error value
-    , log(*spdlog::get("console"))
-    , path_(_path)
-{
-    open();
-}
-
 Connection::~Connection(){
     if( is_open() ){
         close(fd_);
@@ -52,18 +43,21 @@ bool Connection::is_open() const {
     return (0 <= fd_);
 }
 
-int Connection::open( ){ 
-    // https://en.wikibooks.org/wiki/Serial_Programming/termios
 
-    if( (path_.empty()) || (0 == baud_rate_) ){
+int Connection::open( const std::string& _path, uint32_t _baud_rate){ 
+    if( _path.empty() || 0 == _baud_rate){
         return -1;
     }
 
+    path_ = _path;
+    baud_rate_ = _baud_rate;
+ 
+    // https://en.wikibooks.org/wiki/Serial_Programming/termios
     log.info("    >> Opening Serial port:");
     log.info("        Path: {}", path_);
     //open serial port
     fd_ = ::open( path_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK );
-    if (fd_ < 0) {
+    if ( -1 == fd_ ) {
         log.error("    !!!! Error: could not open serial port !!!!");
         return -1;
     }
@@ -132,17 +126,6 @@ int Connection::open( ){
     }
 
     return 0;
-}
-
-int Connection::open( const std::string& _path, uint32_t _baud_rate){ 
-    if( _path.empty() || 0 == _baud_rate){
-        return -1;
-    }
-
-    path_ = _path;
-    baud_rate_ = _baud_rate;
-
-    return open();
 }
 
 ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_count ){
