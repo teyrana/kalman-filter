@@ -5,9 +5,9 @@ SET(IMU_DRIVER_LIB_HEADERS
             ../serial/src/connection.hpp
             ../serial/src/connection.cpp
             src/command.hpp
-            src/response.hpp
-            src/driver.hpp
-            src/driver.inl )
+            src/response.hpp src/response.inl
+            src/driver.hpp src/driver.inl 
+    )
 
 SET(IMU_DRIVER_LIB_SOURCES
             src/driver.cpp )

@@ -7,6 +7,14 @@
 #include <array>
 #include <cmath>
 
+// 3rd-Party Library Includes
+#include <Eigen/Geometry>
+#include <Eigen/Dense>
+
+// 3rd-Party Library Includes
+#include "spdlog/spdlog.h"
+
+
 namespace IMU {
 
 template<size_t payload_length_>
@@ -34,42 +42,7 @@ public:
 
     static constexpr uint8_t flags() { return response_flags_; }
 
-    void log( spdlog::logger& log, spdlog::level::level_enum level, const std::string& preamble="") const {
-        fmt::memory_buffer logbuf;
-
-        // write preamble to buffer
-        fmt::format_to( logbuf, preamble);
-
-        size_t index = 0;
-        { // add response header
-            fmt::format_to( logbuf, "   ");
-            if( 0 < (response_flags_& SUCCESS_FLAG) ){
-                fmt::format_to( logbuf, " {:02X}", buffer[0]);
-                index=1;
-            }
-
-            if( 0 < (response_flags_& TIMESTAMP_FLAG) ){
-                fmt::format_to( logbuf, " {:02X} {:02X} {:02X} {:02X}",
-                                        buffer[index], buffer[index+1], buffer[index+2], buffer[index+3] );
-                index += 4;
-            }
-            if( 0 < (response_flags_& COMMAND_ECHO_FLAG) ){
-                fmt::format_to( logbuf, " {:02X}", buffer[index]);
-                index++;
-            }
-        }
-
-        // print response payload / body:
-        fmt::format_to( logbuf, "    ");
-        if( 0 < payload_length ){
-            for( index = payload_index; index < buffer.size(); ++index ){
-                fmt::format_to( logbuf, " {:02X}", buffer[index] );
-            }
-        }
-
-        // // finally, log the result:
-        log.log( level, fmt::to_string(logbuf) );
-    }
+    void log( spdlog::logger& log, spdlog::level::level_enum level, const std::string& preamble="") const;
 
     // constexpr uint8_t* operator*() { return buffer.data(); }
 
@@ -79,25 +52,22 @@ public:
     constexpr const uint8_t& operator[](size_t index ) const { return buffer[index]; }
 
     /// \brief read a value, starting from the given data index 
-    float read_float32( size_t index ) const { return _read_float32(payload_index + index); }
+    float_t read_float32( size_t index ) const;
 
     /// \brief read a value, starting from the given data index 
-    uint32_t read_uint32( size_t index ) const { return _read_uint32(payload_index + index); }
+    double_t read_float64( size_t index ) const;
 
-    Eigen::Vector3d& read_vector3d( size_t index, Eigen::Vector3d& dest ){   
-        dest[0] = _read_float32( payload_index + index + 0 );
-        dest[1] = _read_float32( payload_index + index + 4 );
-        dest[2] = _read_float32( payload_index + index + 8 );
-        return dest;
-    }
+    /// \brief read a value, starting from the given data index 
+    int32_t read_int32( size_t index ) const;
 
-    Eigen::Vector4d& read_vector4d( size_t index, Eigen::Vector4d& dest ){   
-        dest[0] = _read_float32( payload_index + index + 0 );
-        dest[1] = _read_float32( payload_index + index + 4 );
-        dest[2] = _read_float32( payload_index + index + 8 );
-        dest[3] = _read_float32( payload_index + index +12 );
-        return dest;
-    }
+    /// \brief read a value, starting from the given data index 
+    uint32_t read_uint32( size_t index ) const;
+    
+    Eigen::Vector3d& read_vector3d( size_t index, Eigen::Vector3d& dest) const;
+
+    Eigen::Vector3i& read_vector3i( size_t index, Eigen::Vector3i& dest) const;
+
+    Eigen::Vector4d& read_vector4d( size_t index, Eigen::Vector4d& dest) const;
 
     constexpr size_t size() const { return buffer.size(); }
 
@@ -109,15 +79,18 @@ public:
     constexpr bool provides_timestamp() const { return (response_flags_& TIMESTAMP_FLAG); }
 
     /// \brief retreives response timestamp -- uint32; milliseconds since hardware power-up 
-    uint32_t timestamp() const { 
-        return (provides_timestamp()?_read_uint32(timestamp_index):0);
-    }
+    uint32_t timestamp() const;
 
     // 0x4 (Bit 2) – Command Echo -- echos the same command as sent:
     constexpr bool provides_command() const { return (response_flags_& COMMAND_ECHO_FLAG); }
     uint8_t command() const { return (provides_command()?buffer[command_echo_index]:0xFF); }
 
-private:
+
+private:  // private member functions
+
+    static void read_chunk32( const uint8_t* const read_bytes, uint8_t * write_bytes);
+
+private: // private static constexpr properties
     // these flags enable various header fields. They are defined in the IMU hardware manuual
 
     // 221 (0xDD) Set response Header
@@ -150,39 +123,15 @@ private:
     static constexpr size_t payload_index = header_length;
     static constexpr size_t payload_length = payload_length_;
 
-private:  // private member attributes
+private:  // private instance attributes
+
     std::array<uint8_t, header_length + payload_length> buffer;
 
-private:  // private member functions
-    float _read_float32( size_t index ) const {
-        float dest;
-        uint8_t* source_bytes = const_cast<uint8_t*>(buffer.data() + index);
-        uint8_t* dest_bytes = reinterpret_cast<uint8_t*>(&dest);
-
-        dest_bytes[0] = source_bytes[3];
-        dest_bytes[1] = source_bytes[2];
-        dest_bytes[2] = source_bytes[1];
-        dest_bytes[3] = source_bytes[0];
-
-        return dest;
-    }
-
-
-    uint32_t _read_uint32( size_t index ) const {
-        uint32_t dest;
-        uint8_t* source_bytes = const_cast<uint8_t*>(buffer.data() + index);
-        uint8_t* dest_bytes = reinterpret_cast<uint8_t*>(&dest);
-
-        dest_bytes[0] = source_bytes[3];
-        dest_bytes[1] = source_bytes[2];
-        dest_bytes[2] = source_bytes[1];
-        dest_bytes[3] = source_bytes[0];
-
-        return dest;
-    }
 
 }; // class Serial::Message
-
 } // namespace Serial
+
+// to include the template-function definitions
+#include "response.inl"
 
 #endif // #ifndef _SERIAL_MESSAGE_HPP_
