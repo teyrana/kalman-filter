@@ -1,6 +1,7 @@
 // GPL v3 (c) 2020, Daniel Williams 
 
 // Standard Library Includes
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -128,16 +129,22 @@ int Connection::open( const std::string& _path, uint32_t _baud_rate){
     return 0;
 }
 
-ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_count ){
+ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_count, 
+                             std::chrono::microseconds start_timeout, std::chrono::microseconds duration_timeout)
+{
     if( nullptr == receive_buffer ){
         log.error("Error::Serial::receive::({}) -- null receive_buffer", EFAULT); 
         return -1;
     }
+    auto call_time = std::chrono::steady_clock::now();
+    auto end_timeout = start_timeout + duration_timeout;
 
     // Rule of thumb.  Not strictly necessary, but helps to lessen the I/O load
     usleep( poll_interval );
 
-    // log.debug("    ## 2: Waiting for {} bytes...", receive_count );
+    // fmt::print(stderr, "    ## 2: Waiting for {} bytes...\n", receive_count );
+    // fmt::print(stderr, "        >> start_timeout => {} ms \n", std::chrono::duration_cast<std::chrono::milliseconds>(start_timeout).count() );
+    // fmt::print(stderr, "        >> end_timeout  =>  {} ms \n", std::chrono::duration_cast<std::chrono::milliseconds>(end_timeout).count() );
     uint8_t * receive_at = receive_buffer;
     const uint8_t * const receive_until = receive_buffer + receive_count;
     ssize_t receive_for = receive_count;
@@ -147,33 +154,40 @@ ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_count ){
     while( receive_at < receive_until){
 
         bytes_read = read( fd_, receive_at, receive_for);
-        // log.debug("    >> 3: 'read' return: {} bytes.  (with {} remaining)", bytes_read, receive_for);
+        auto read_time = std::chrono::steady_clock::now() - call_time;
+        // fmt::print( stderr, "        >> 3: read return: {} bytes @ t={} ms \n", bytes_read, std::chrono::duration_cast<std::chrono::milliseconds>(read_time).count() );
+
+        if( receive_buffer == receive_at){
+            if( start_timeout < read_time ) {
+                log.error("<<<< !! Timed out before first byte @ {} ms !!\n", std::chrono::duration_cast<std::chrono::milliseconds>(read_time).count() );
+                errno = ETIMEDOUT;
+                return -2;
+            }if( (0 < bytes_read)){
+                // fmt::print(stderr, "        >> 4: Received first byte @ {} ms \n", std::chrono::duration_cast<std::chrono::milliseconds>(read_time).count() );
+                // if this is the first received byte, record the a new 'first_byte_time':
+                // this should _always_ result in pushing the 'first_byte_time' earlier.
+                end_timeout = std::chrono::duration_cast<std::chrono::milliseconds>(read_time) + duration_timeout;
+                // fmt::print(stderr, "            ## update end_timeout => {} ms \n", std::chrono::duration_cast<std::chrono::milliseconds>(end_timeout).count() );
+            }
+        }else if( end_timeout < read_time ){
+            log.error("<<<< !! Timed out before last byte @ {} ms !!\n", std::chrono::duration_cast<std::chrono::milliseconds>(read_time).count() );
+            errno = ETIMEDOUT;
+            return -2;
+        }
 
         if( -1 == bytes_read ){
             usleep(poll_interval);
             continue;
-        
-        }else if (bytes_read == EAGAIN || bytes_read == EWOULDBLOCK) {
-            // EAGAIN is returned by a read on a blocked socket that opened non-blocking.
-            // this means that the syscall _would_ block, but we've configured it not to  
-            usleep(poll_interval);
-            log.warn(" Socket should be non-blocking... EAGAIN / EWOULDBLOCK return from 'read' call...");
-            continue;
+        }
 
-        }else if( 0 < bytes_read ) {
-            // log.debug("    >> 4: Received {} bytes.", bytes_read);
+        if( 0 < bytes_read ) {
             receive_at += bytes_read;
             // receive_for -= bytes_read;
             receive_for = (receive_until - receive_at);
-
-            // make sure we don't overshoot our goal
-            if( 0 > receive_for ){
-                log.error("<<!! Error:  negative 'receive_for' value!");
-                return -1;
-            }
-            
+           
             if( receive_at >= receive_until ) {
-                // log.errorstderr, "    << 6. Received all bytes (%ld); returning.\n", bytes_read);
+                // fmt::print(stderr, "        << 6. Received all bytes ({}) @ {} ms; returning.\n", (receive_at - receive_buffer), 
+                //                     std::chrono::duration_cast<std::chrono::milliseconds>(read_time).count() );
                 return receive_count;
             }
             continue;
@@ -184,7 +198,8 @@ ssize_t Connection::receive( uint8_t* receive_buffer, ssize_t receive_count ){
         }
     }
 
-    log.error("??? how are we getting here? ", errno, strerror(errno) );
+    log.error("??? how are we getting here? ({}) {}\n", errno, strerror(errno) );
+
     // Unknown state! Control should not reach here... 
     // but may, if too many bytes are requested.
     return -1;

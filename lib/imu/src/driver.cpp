@@ -1,6 +1,7 @@
 // GPL v3 (c) 2020, Daniel Williams 
 
 // Standard Library Includes
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -23,10 +24,12 @@ volatile sig_atomic_t IMU::Driver::streaming = false;
 Driver::Driver()
     : conn_()
     , log( *spdlog::get("console"))
-    , stream_interval( 500 * 1000)    // 500 ms
-    // , stream_duration( 0xffffffff) // production
-    , stream_duration( 30 * 1000000 ) // 30s -- development
-    , stream_delay( 1000 )            // minimum delay
+    , receive_first_byte_timeout(std::chrono::milliseconds(250))
+    , receive_last_byte_timeout(std::chrono::milliseconds(50))
+    , stream_interval(std::chrono::milliseconds(500))
+    // , stream_duration(std::chrono::microseconds::max()) // production
+    , stream_duration(std::chrono::seconds(32))         // development
+    , stream_delay( std::chrono::milliseconds(1) )  // minimum delay
     , state_(ERROR)
 {}
 
@@ -114,16 +117,22 @@ int Driver::monitor( void (*callback) (stream_message_t& buffer) ){
     stream_message_t receive_buffer;
     ssize_t bytes_read = -1;
     while( streaming ){
-    
-        bytes_read = receive( receive_buffer );
 
-        if ( -2 == bytes_read ) {
-            // ignore frame; error is already handled
-            continue;
-        }else if ( -1 == bytes_read ) {
+        bytes_read = conn_.receive( receive_buffer.data(), receive_buffer.size(), receive_first_byte_timeout, receive_last_byte_timeout);
+
+        if ( 0 > bytes_read ) {
             log.error("    !! Error while streaming: [{}]: {} !!", errno, strerror(errno) );
             // return (state_ = ERROR);
             continue;
+
+        }else if( receive_buffer.provides_success() && (!receive_buffer.success()) ){
+            log.warn("    XX command failed !! (value = {})", receive_buffer[0]); 
+            // this resests byte flow, and it should pick up again at the frame boundary
+            conn_.flush();
+            
+            state_ = ERROR;
+            return state_;
+            
         }else if( receive_buffer.size() != static_cast<size_t>(bytes_read)) {
             log.error("    !! Unexpected byte count !!");
             log.error("    !! Received: {} != {}", receive_buffer.size(), bytes_read );
@@ -159,14 +168,24 @@ bool Driver::stream() {
     log.info("    >>>> Wrote Streaming Slots.");
 
     IMU::Command<12,0> timing_command( 82 );
-    timing_command.write_uint32( stream_interval, 0 );
-    timing_command.write_uint32( stream_duration, 4 );
-    timing_command.write_uint32( stream_delay,    8 );
+    const uint32_t raw_interval_usec = stream_interval.count();
+    timing_command.write_uint32( raw_interval_usec, 0 );
+    uint32_t raw_duration_usec = stream_duration.count();
+    if( stream_duration == std::chrono::microseconds::max() ){
+        raw_duration_usec = 0xFFFFFFFF;
+    }
+    timing_command.write_uint32( raw_duration_usec, 4 );
+    const uint32_t raw_delay_usec = stream_delay.count();
+    timing_command.write_uint32( raw_delay_usec,    8 );
     timing_command.pack();
     success &= request( timing_command );
     log.info("    >>>> Wrote stream Timing: {}, {}, {}", 
-                stream_interval, stream_duration, stream_delay );
+                stream_interval.count(), stream_duration.count(), stream_delay.count());
     
+    // if we expect to receive a frame every 'stream_interval', then wait 
+    // twice the expected interval for the first byte.
+    // >> this is just a rule-of-thumb / heuristic <<
+    receive_first_byte_timeout = 2*stream_interval;
 
     constexpr IMU::Command<0,0> start_stream_command( 85 );
     success &= request( start_stream_command );
@@ -183,15 +202,9 @@ bool Driver::stream() {
     }
 }
 
-bool Driver::stream( uint32_t desired_stream_interval ) {
-    if( 0 == desired_stream_interval ){
-        return -1;
-    }
-
-    stream_interval = desired_stream_interval * 1000;
-    stream_duration = 0xFFFFFFFF;
-    stream_delay = 1000; // minimum delay
-
+bool Driver::stream( std::chrono::microseconds desired_stream_interval ) {
+    stream_interval = desired_stream_interval;
+    // stream_duration = 0xFFFFFFFF;
     return stream();
 }
 

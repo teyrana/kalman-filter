@@ -172,9 +172,6 @@ int main()
     SPDLOG_INFO("## Creating IMU Driver...");
     driver = std::make_unique<IMU::Driver>();
 
-    SPDLOG_INFO("## Creating IMU Driver...");
-    driver->open("/dev/ttyUSB0", 115200);
-
     SPDLOG_INFO("## Setting up IMU Driver...");
     if( 0 != driver->open("/dev/ttyUSB0", 115200)){
         SPDLOG_ERROR("<< Failed to connect IMU. Exiting.");

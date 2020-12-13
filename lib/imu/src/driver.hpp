@@ -4,6 +4,9 @@
 #ifndef _IMU_INTERFACE_HPP_
 #define _IMU_INTERFACE_HPP_
 
+// standard library headers
+#include <chrono>
+
 // POSIX / Linux Headers
 #include <signal.h>
 
@@ -75,7 +78,6 @@ public:
     /// \brief stop the driver & connection, and shutdown
     void stop();
 
-    bool stream();
 
     template<typename command_t>
     bool request( const command_t& cmd );
@@ -84,12 +86,14 @@ public:
     bool request( const command_t& cmd, response_t& res );
 
     /// \param desired_stream_interval interval, in msec
-    bool stream( uint32_t desired_stream_interval );
+    bool stream();
+    bool stream( std::chrono::microseconds desired_stream_interval );
 
 private:    
 
-    template<typename response_t>
-    ssize_t receive( response_t& res);
+    // /// \brief receive a response of a given type (i.e. size)
+    // template<typename response_t>
+    // ssize_t receive( response_t& res);
 
     template<typename command_t>
     void write( const command_t& cmd);
@@ -102,12 +106,17 @@ private:  // properties
 
     spdlog::logger& log;
 
+    /// \brief milliseconds to wait for the first byte of traffic
+    std::chrono::microseconds receive_first_byte_timeout;
+    /// \brief milliseconds to wait for the last bytes (from the first byte) 
+    std::chrono::microseconds receive_last_byte_timeout;
+
     /// \brief output streaming data once every 'streaming_interval' microseconds
-    uint32_t stream_interval;
+    std::chrono::microseconds stream_interval;
     /// \brief output streaming for this many microseconds
-    uint32_t stream_duration;
+    std::chrono::microseconds stream_duration;
     /// \brief start streaming after this many microseconds
-    uint32_t stream_delay;
+    std::chrono::microseconds stream_delay;
 
     DriverState_t state_;
 

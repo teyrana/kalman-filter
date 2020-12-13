@@ -31,7 +31,13 @@ public:
 
     int open( const std::string& _path, uint32_t _baudrate);
 
-    ssize_t receive( uint8_t* receive_buffer, ssize_t receive_count );
+    /// \brief receive a response of a given type (i.e. size)
+    ///
+    /// \param receive_buffer write received bytes into this buffer
+    /// \param receive_count receive at most this many bytes into the above buffer
+    /// \param start_timeout milliseconds to wait for the first byte of traffic
+    /// \param duration_timeout milliseconds to wait for the remainder of bytes (from the first 
+    ssize_t receive( uint8_t* receive_buffer, ssize_t receive_count, std::chrono::microseconds start_timeout, std::chrono::microseconds duration_timeout);
 
     ssize_t write( const uint8_t * write_buffer, ssize_t write_count );
 

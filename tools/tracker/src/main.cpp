@@ -104,17 +104,16 @@ int main()
     SPDLOG_INFO("## Creating IMU Driver...");
     driver = std::make_unique<IMU::Driver>();
 
-    SPDLOG_INFO("## Creating IMU Driver...");
-    driver->open("/dev/ttyUSB0", 115200);
-
     SPDLOG_INFO("## Setting up IMU Driver...");
-    if( IMU::Driver::IDLE != driver->state()){
+    if( 0 != driver->open("/dev/ttyUSB0", 115200)){
         SPDLOG_ERROR("<< Failed to connect IMU. Exiting.");
         return EXIT_FAILURE;
+    } else {
+        SPDLOG_ERROR(">> Connected to IMU.");
     }
 
     SPDLOG_INFO( "==== Starting Streams: ==== ");
-    if( EXIT_SUCCESS == driver->stream(500)){
+    if( EXIT_SUCCESS == driver->stream(std::chrono::milliseconds(500)) ){
         SPDLOG_INFO("==== Monitoring: ====");
         driver->monitor( handle_stream_data );
         return EXIT_SUCCESS;

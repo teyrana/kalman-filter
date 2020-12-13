@@ -9,21 +9,21 @@
 
 using IMU::Driver;
 
-template<typename response_t>
-ssize_t Driver::receive( response_t& res){
-    auto bytes_read = conn_.receive( res.data(), res.size() );
+// template<typename response_t>
+// ssize_t Driver::receive( response_t& res){
+//     auto bytes_read = conn_.receive( res.data(), res.size() );
 
-    if( res.provides_success() && (!res.success()) ){
-        log.warn("    XX command failed !! (value = {})", res[0]);
+//     if( res.provides_success() && (!res.success()) ){
+//         log.warn("    XX command failed !! (value = {})", res[0]);
         
-        // this resests byte flow, and it should pick up again at the frame boundary
-        conn_.flush();
+//         // this resests byte flow, and it should pick up again at the frame boundary
+//         conn_.flush();
 
-        return -2;
-    }
+//         return -2;
+//     }
 
-    return bytes_read;
-}
+//     return bytes_read;
+// }
 
 
 template<typename command_t>
@@ -45,7 +45,10 @@ bool Driver::request( const command_t & cmd, response_t& res){
         return true;
     }
 
-    ssize_t bytes_received = conn_.receive( res.data(), res.size() );
+    const std::chrono::microseconds start_timeout( std::chrono::milliseconds(250) );
+    const std::chrono::microseconds end_timeout( this->receive_last_byte_timeout );
+
+    ssize_t bytes_received = conn_.receive( res.data(), res.size(), start_timeout, receive_last_byte_timeout );
 
     if(0 == bytes_received) {
         log.error("        << Zero-Length Response, but expected {} bytes! ", res.size());
